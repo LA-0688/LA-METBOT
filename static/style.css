@@ -1,0 +1,227 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Mono&display=swap');
+
+:root {
+    --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --accent: #38bdf8;
+    --accent-glow: rgba(56, 189, 248, 0.6);
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: var(--bg-gradient);
+    color: var(--text-main);
+    font-family: 'Outfit', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    overflow-x: hidden;
+}
+
+/* Dynamic Animated Orbs for Premium Background */
+body::before, body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    z-index: -1;
+    animation: drift 20s infinite alternate;
+}
+
+body::before {
+    top: -10%; left: -10%;
+    width: 60vw; height: 60vw;
+    background: radial-gradient(circle, rgba(56, 189, 248, 0.15), transparent 60%);
+}
+
+body::after {
+    bottom: -10%; right: -10%;
+    width: 50vw; height: 50vw;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.15), transparent 60%);
+    animation-delay: -10s;
+}
+
+@keyframes drift {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(5%, 5%) scale(1.1); }
+}
+
+.container {
+    width: 100%;
+    max-width: 900px;
+    padding: 4rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3rem;
+    z-index: 1;
+}
+
+header { text-align: center; animation: slideDown 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+h1 { 
+    font-size: 4rem; 
+    font-weight: 800; 
+    letter-spacing: -2px; 
+    margin-bottom: 0.5rem;
+    background: linear-gradient(to right, #ffffff, #94a3b8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.highlight { 
+    background: linear-gradient(to right, #38bdf8, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+header p { color: var(--text-muted); font-size: 1.2rem; font-weight: 300; }
+
+.search-section { display: flex; justify-content: center; animation: fadeIn 1.2s ease-out; }
+
+.search-box {
+    display: flex;
+    width: 100%;
+    max-width: 600px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 100px;
+    padding: 0.75rem;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.4s ease, border-color 0.4s ease;
+}
+
+.search-box:focus-within {
+    transform: translateY(-4px);
+    border-color: rgba(56, 189, 248, 0.4);
+    box-shadow: 0 30px 60px rgba(0,0,0,0.4), 0 0 0 4px rgba(56, 189, 248, 0.1);
+}
+
+input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: white;
+    font-size: 1.25rem;
+    padding: 0.5rem 1.5rem;
+    font-family: 'Space Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+input::placeholder { color: rgba(148, 163, 184, 0.4); text-transform: none; letter-spacing: normal; font-family: 'Outfit', sans-serif;}
+
+button {
+    background: linear-gradient(135deg, #38bdf8, #3b82f6);
+    border: none;
+    border-radius: 50%;
+    width: 55px; height: 55px;
+    display: flex; align-items: center; justify-content: center;
+    color: white;
+    cursor: pointer;
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s ease;
+    box-shadow: 0 10px 20px rgba(56, 189, 248, 0.3);
+}
+
+button:hover { 
+    transform: scale(1.1) rotate(5deg); 
+    box-shadow: 0 15px 30px rgba(56, 189, 248, 0.5);
+}
+button svg { width: 24px; height: 24px; }
+
+.results-container {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 32px;
+    padding: 3rem;
+    min-height: 200px;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 30px 60px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1);
+    animation: slideUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.results-container.hidden { display: none; }
+
+.loader {
+    width: 50px; height: 50px;
+    border: 3px solid var(--glass-border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s cubic-bezier(0.6, 0.2, 0.4, 0.8) infinite;
+    margin: 4rem auto;
+    display: none;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Premium Markdown Styles */
+.markdown-body { font-size: 1.15rem; line-height: 1.8; font-weight: 300; }
+.markdown-body p { margin-bottom: 1.5rem; }
+.markdown-body em { 
+    color: #a78bfa; 
+    font-style: normal; 
+    font-family: 'Space Mono', monospace; 
+    background: rgba(167, 139, 250, 0.1); 
+    padding: 4px 8px; 
+    border-radius: 6px;
+    font-size: 0.95em;
+    letter-spacing: -0.5px;
+}
+.markdown-body strong { color: #fff; font-weight: 600; letter-spacing: -0.5px; }
+.error { color: #fb7185; text-align: center; font-weight: 600; }
+
+@keyframes slideDown { from { opacity: 0; transform: translateY(-40px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(60px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* --- Dynamic Weather Animations --- */
+.weather-rain::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%);
+    background-size: 100% 200%;
+    animation: rainfall 0.3s linear infinite;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+@keyframes rainfall {
+    0% { background-position: 0% -100%; }
+    100% { background-position: 0% 100%; }
+}
+
+.weather-thunder {
+    animation: lightning 7s infinite;
+}
+
+@keyframes lightning {
+    0%, 93%, 98% { background-color: var(--bg-gradient); }
+    94%, 95%, 99%, 100% { background-color: rgba(255, 255, 255, 0.9); }
+}
+
+.weather-snow::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle, #fff 2px, transparent 2px) 0 0,
+                radial-gradient(circle, #fff 2px, transparent 2px) 25px 25px;
+    background-size: 50px 50px;
+    animation: snowfall 4s linear infinite;
+    z-index: -1;
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+@keyframes snowfall {
+    0% { background-position: 0px 0px, 25px 25px; }
+    100% { background-position: 50px 500px, 75px 525px; }
+}

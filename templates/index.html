@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>METAM Terminal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="background-glow"></div>
+    <main class="container">
+        <header>
+            <h1><span class="highlight">MET</span>AM</h1>
+            <p>Instant METAR, TAF, and D-ATIS decoded directly from the global datalink.</p>
+        </header>
+
+        <section class="search-section">
+            <div class="search-box">
+                <input type="text" id="icao-input" placeholder="Enter ICAO codes (e.g. KLAX VABB CYYZ)" autocomplete="off">
+                <button id="search-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </button>
+            </div>
+        </section>
+
+        <section id="results" class="results-container hidden">
+            <div class="loader" id="loader"></div>
+            <div id="weather-content" class="markdown-body"></div>
+        </section>
+    </main>
+
+    <script>
+        const input = document.getElementById('icao-input');
+        const btn = document.getElementById('search-btn');
+        const resultsBox = document.getElementById('results');
+        const contentBox = document.getElementById('weather-content');
+        const loader = document.getElementById('loader');
+
+        async function fetchWeather() {
+            const query = input.value.trim();
+            if(!query) return;
+
+            resultsBox.classList.remove('hidden');
+            contentBox.innerHTML = '';
+            loader.style.display = 'block';
+            
+            try {
+                const response = await fetch(`/api/weather?stations=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                
+                loader.style.display = 'none';
+                
+                // Parse markdown to HTML
+                contentBox.innerHTML = marked.parse(data.text);
+                
+                // Dynamic Weather Animations
+                const textRaw = data.text.toLowerCase();
+                document.body.className = ''; // reset classes
+                if (textRaw.includes('thunderstorm') || textRaw.includes('squall')) {
+                    document.body.className = 'weather-thunder';
+                } else if (textRaw.includes('rain') || textRaw.includes('drizzle')) {
+                    document.body.className = 'weather-rain';
+                } else if (textRaw.includes('snow') || textRaw.includes('ice pellets') || textRaw.includes('hail')) {
+                    document.body.className = 'weather-snow';
+                }
+            } catch (err) {
+                loader.style.display = 'none';
+                contentBox.innerHTML = `<p class="error">Failed to connect to the global datalink.</p>`;
+            }
+        }
+
+        btn.addEventListener('click', fetchWeather);
+        input.addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') fetchWeather();
+        });
+    </script>
+</body>
+</html>
