@@ -183,95 +183,111 @@ button svg { width: 24px; height: 24px; }
 @keyframes slideUp { from { opacity: 0; transform: translateY(60px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* --- Futuristic Weather HUD Animations --- */
+/* --- Cutting-Edge Atmospheric Weather HUD --- */
 #weather-layer {
     position: fixed;
     top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none;
     z-index: 0;
     overflow: hidden;
+    perspective: 1000px;
 }
 
-/* Deep Azure Atmospheric Clear Sky */
+/* Breathing Live Background */
+body {
+    background: linear-gradient(-45deg, #0f172a, #1e1b4b, #0f172a, #020617);
+    background-size: 400% 400%;
+    animation: breathing-bg 15s ease infinite;
+}
+
+@keyframes breathing-bg {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Deep Azure Atmospheric Clear Sky (Live) */
 .weather-clear {
-    background: linear-gradient(135deg, #075985 0%, #0369a1 50%, #0c4a6e 100%) !important;
+    background: linear-gradient(-45deg, #075985, #0369a1, #0c4a6e) !important;
+    background-size: 400% 400% !important;
+    animation: breathing-bg 10s ease infinite !important;
 }
-.weather-clear #weather-layer::after {
+
+/* Dense Cinematic Rain */
+.weather-rain #weather-layer::before {
     content: '';
     position: absolute;
-    top: -100px; right: -100px;
-    width: 400px; height: 400px;
-    background: radial-gradient(circle, rgba(56, 189, 248, 0.4) 0%, transparent 70%);
-    filter: blur(60px);
+    width: 200%; height: 200%;
+    top: -50%; left: -50%;
+    background-image: 
+        radial-gradient(1px 1px at 10% 10%, #fff, transparent),
+        radial-gradient(1px 1px at 30% 20%, #fff, transparent),
+        radial-gradient(1px 1px at 50% 40%, #fff, transparent),
+        radial-gradient(1px 1px at 70% 60%, #fff, transparent),
+        radial-gradient(1px 1px at 90% 80%, #fff, transparent);
+    background-size: 100px 1000px;
+    animation: rain-stream 0.3s linear infinite;
+    opacity: 0.3;
 }
 
-/* Futuristic Rain: Glowing Light Trails */
-.weather-rain #weather-layer::before, 
-.weather-rain #weather-layer::after {
-    content: '';
-    position: absolute;
-    width: 1px; height: 300px;
-    background: linear-gradient(to bottom, transparent, #38bdf8, transparent);
-    opacity: 0.4;
-    animation: futuristic-rain 0.4s linear infinite;
-}
-.weather-rain #weather-layer::before { left: 30%; animation-delay: 0s; }
-.weather-rain #weather-layer::after { left: 70%; animation-delay: 0.2s; }
-
-@keyframes futuristic-rain {
-    from { transform: translateY(-500px) skewX(-15deg); }
-    to { transform: translateY(1200px) skewX(-15deg); }
+@keyframes rain-stream {
+    from { transform: translateY(0) skewX(-15deg); }
+    to { transform: translateY(500px) skewX(-15deg); }
 }
 
-/* organic Jagged Lightning with Neon Glow */
-.weather-thunder #weather-layer::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 50%; width: 2px; height: 100%;
-    background: #fff;
-    box-shadow: 0 0 15px #fff, 0 0 30px #38bdf8, 0 0 60px #818cf8;
-    opacity: 0;
-    clip-path: polygon(0 0, 100% 0, 30% 20%, 80% 35%, 10% 50%, 90% 65%, 20% 85%, 50% 100%, 0 100%);
-    animation: neon-lightning 6s infinite;
-}
-
-@keyframes neon-lightning {
-    0%, 94%, 96%, 98%, 100% { opacity: 0; }
-    95%, 97% { opacity: 1; filter: brightness(1.5); }
-}
-
-/* Windy: High-Speed Velocity Streaks */
-.weather-windy #weather-layer::before {
-    content: '';
-    position: absolute;
-    top: 20%; width: 400px; height: 1px;
-    background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.3), transparent);
-    box-shadow: 0 0 10px rgba(255,255,255,0.2);
-    animation: wind-velocity 1s linear infinite;
-}
+/* Multi-Layer Cinematic Wind (Velocity Flow) */
+.weather-windy #weather-layer::before,
 .weather-windy #weather-layer::after {
     content: '';
     position: absolute;
-    top: 60%; width: 600px; height: 1px;
-    background: linear-gradient(to right, transparent, rgba(56, 189, 248, 0.2), transparent);
-    animation: wind-velocity 1.5s linear infinite;
+    width: 200%; height: 2px;
+    background: linear-gradient(to right, transparent, rgba(255,255,255,0.2), transparent);
+    box-shadow: 
+        0 100px 20px rgba(255,255,255,0.05),
+        200px 300px 20px rgba(255,255,255,0.05),
+        -300px 500px 20px rgba(255,255,255,0.05),
+        400px 700px 20px rgba(255,255,255,0.05);
+    animation: wind-flow 0.8s linear infinite;
+}
+.weather-windy #weather-layer::after {
+    height: 1px;
+    animation-duration: 1.2s;
+    opacity: 0.5;
+    transform: translateY(50px);
 }
 
-@keyframes wind-velocity {
-    from { left: -600px; }
-    to { left: 110%; }
+@keyframes wind-flow {
+    from { transform: translateX(-50%); }
+    to { transform: translateX(0%); }
 }
 
-/* Soft HUD Snow Drift */
+/* Organic Neon Lightning Strike */
+.weather-thunder #weather-layer::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 40%; width: 3px; height: 100%;
+    background: #fff;
+    box-shadow: 0 0 20px #fff, 0 0 40px #38bdf8, 0 0 80px #38bdf8;
+    opacity: 0;
+    clip-path: polygon(0 0, 100% 0, 40% 20%, 90% 40%, 10% 60%, 80% 80%, 30% 100%, 0% 100%);
+    animation: lightning-pulse 7s infinite;
+}
+
+@keyframes lightning-pulse {
+    0%, 94%, 96%, 98%, 100% { opacity: 0; }
+    95%, 97% { opacity: 1; filter: blur(1px) brightness(2); }
+}
+
+/* HUD Snow Glide */
 .weather-snow #weather-layer {
-    background-image: radial-gradient(circle, #fff 1px, transparent 1px);
-    background-size: 80px 80px;
-    animation: snow-glide 12s linear infinite;
-    opacity: 0.4;
-    filter: blur(0.5px);
+    background-image: radial-gradient(2px 2px at 20px 30px, #eee, transparent),
+                      radial-gradient(2px 2px at 40px 70px, #fff, transparent);
+    background-size: 100px 100px;
+    animation: snow-glide 10s linear infinite;
+    opacity: 0.5;
 }
 
 @keyframes snow-glide {
     from { background-position: 0 0; }
-    to { background-position: 100px 800px; }
+    to { background-position: 50px 500px; }
 }
