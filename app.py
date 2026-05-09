@@ -56,11 +56,21 @@ def handle_telegram_messages(message):
     print(f"\n[TELEGRAM] {pilot_name} {username} requested: {user_text}", flush=True)
     try:
         weather_data = get_instant_weather(user_text)
-        try:
-            bot.reply_to(message, weather_data, parse_mode="Markdown")
-        except telebot.apihelper.ApiTelegramException:
-            # Fallback if markdown has unclosed asterisks
-            bot.reply_to(message, weather_data) 
+        
+        # Telegram limit is 4096. We split at 4000 to be safe.
+        if len(weather_data) > 4000:
+            chunks = [weather_data[i:i+4000] for i in range(0, len(weather_data), 4000)]
+            for chunk in chunks:
+                try:
+                    bot.reply_to(message, chunk, parse_mode="Markdown")
+                except:
+                    bot.reply_to(message, chunk) # Fallback if markdown is broken in chunk
+        else:
+            try:
+                bot.reply_to(message, weather_data, parse_mode="Markdown")
+            except telebot.apihelper.ApiTelegramException:
+                bot.reply_to(message, weather_data) 
+                
     except Exception as e:
         bot.reply_to(message, f"Sorry, I ran into an error: {str(e)}")
 

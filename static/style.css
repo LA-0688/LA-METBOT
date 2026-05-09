@@ -69,12 +69,14 @@ h1 {
     margin-bottom: 0.5rem;
     background: linear-gradient(to right, #ffffff, #94a3b8);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
 .highlight { 
     background: linear-gradient(to right, #38bdf8, #818cf8);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
@@ -182,46 +184,45 @@ button svg { width: 24px; height: 24px; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* --- Dynamic Weather Animations --- */
-.weather-rain::before {
-    content: '';
+#weather-layer {
     position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%);
-    background-size: 100% 200%;
-    animation: rainfall 0.3s linear infinite;
-    z-index: -1;
+    top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none;
-    opacity: 0.8;
+    z-index: 0;
 }
 
-@keyframes rainfall {
-    0% { background-position: 0% -100%; }
-    100% { background-position: 0% 100%; }
+/* Realistic Rain Drops */
+.weather-rain #weather-layer {
+    background-image: linear-gradient(to bottom, transparent, rgba(255,255,255,0.2) 40%, transparent);
+    background-size: 2px 200px;
+    animation: rain-drops 0.15s linear infinite;
+    opacity: 0.6;
 }
 
-.weather-thunder {
-    animation: lightning 7s infinite;
+@keyframes rain-drops {
+    from { background-position: 0 -200px; }
+    to { background-position: 0 200px; }
 }
 
-@keyframes lightning {
-    0%, 93%, 98% { background-color: var(--bg-gradient); }
-    94%, 95%, 99%, 100% { background-color: rgba(255, 255, 255, 0.9); }
+/* Dramatic Lightning */
+.weather-thunder #weather-layer {
+    animation: lightning-strike 8s infinite;
 }
 
-.weather-snow::before {
-    content: '';
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: radial-gradient(circle, #fff 2px, transparent 2px) 0 0,
-                radial-gradient(circle, #fff 2px, transparent 2px) 25px 25px;
-    background-size: 50px 50px;
-    animation: snowfall 4s linear infinite;
-    z-index: -1;
-    opacity: 0.4;
-    pointer-events: none;
+@keyframes lightning-strike {
+    0%, 94%, 96%, 100% { background-color: transparent; }
+    95%, 97% { background-color: rgba(255, 255, 255, 0.5); }
 }
 
-@keyframes snowfall {
-    0% { background-position: 0px 0px, 25px 25px; }
-    100% { background-position: 50px 500px, 75px 525px; }
+/* Snow Particles */
+.weather-snow #weather-layer {
+    background-image: radial-gradient(circle, #fff 1.5px, transparent 1.5px);
+    background-size: 60px 60px;
+    animation: snow-fall 8s linear infinite;
+    opacity: 0.5;
+}
+
+@keyframes snow-fall {
+    from { background-position: 0 0; }
+    to { background-position: 60px 600px; }
 }

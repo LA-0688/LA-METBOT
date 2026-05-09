@@ -1,4 +1,24 @@
-import requests
+import requests, time
+from typing import Dict, Any
+
+# ---------- Helper: robust GET with retries ----------
+def safe_get(url: str, *, timeout: int = 12, retries: int = 2) -> Any:
+    """Fetch JSON with exponential back-off to prevent random timeout errors."""
+    backoff = 1
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            if attempt == retries:
+                raise
+            time.sleep(backoff)
+            backoff *= 2 # 1 -> 2 -> 4 seconds
+
+# ---------- In-memory cache (5-minute TTL) ----------
+weather_cache: Dict[str, tuple[str, float]] = {}
+CACHE_TTL = 300 
 
 def format_visibility(vis_sm, station_code):
     if vis_sm == 'N/A' or vis_sm is None:
@@ -8,7 +28,6 @@ def format_visibility(vis_sm, station_code):
     if station_code.startswith('K'):
         return f"{vis_str} SM"
         
-    has_plus = '+' in vis_str
     try:
         val = float(vis_str.replace('+', '').replace('<', '').replace('>', '').strip())
         km_val = round(val * 1.60934, 1)
@@ -63,7 +82,7 @@ def decode_clouds(clouds_list):
     return ", ".join(res)
 
 def get_instant_weather(stations: str) -> str:
-    """Fetches and decodes live METAR, TAF, and D-ATIS instantly using pure Python."""
+    """Fetches and decodes live METAR, TAF, and D-ATIS instantly."""
     stations_list = [s.strip().upper() for s in stations.replace(",", " ").split() if s.strip()]
     if not stations_list:
         return "Please provide at least one station code."
@@ -72,17 +91,17 @@ def get_instant_weather(stations: str) -> str:
     result_text = ""
     
     try:
+        # 1. Fetch Data with safe_get
         metar_url = f"https://aviationweather.gov/api/data/metar?ids={clean_stations}&format=json"
-        metar_resp = requests.get(metar_url, timeout=5)
+        taf_url = f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
+        
         try:
-            metar_response = metar_resp.json() if metar_resp.text.strip() else []
+            metar_response = safe_get(metar_url) or []
         except Exception:
             metar_response = []
-        
-        taf_url = f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
-        taf_resp = requests.get(taf_url, timeout=5)
+            
         try:
-            taf_response = taf_resp.json() if taf_resp.text.strip() else []
+            taf_response = safe_get(taf_url) or []
         except Exception:
             taf_response = []
         
@@ -97,9 +116,7 @@ def get_instant_weather(stations: str) -> str:
                 tafs_by_station[t.get('icaoId', 'Unknown')] = t
         
         for station in stations_list:
-            result_text += f"━━━━━━━━━━━━━━━━━━━━\n"
-            result_text += f"📍 *STATION: {station}*\n"
-            result_text += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            result_text += f"### 📍 {station}\n\n"
             
             # --- METAR ---
             if station in metars_by_station:
@@ -109,15 +126,16 @@ def get_instant_weather(stations: str) -> str:
                 obs_time_raw = m.get('obsTime', 'N/A')
                 obs_time = str(obs_time_raw).replace('T', ' ').replace('Z', ' UTC')
                 flt_cat = m.get('fltCat', 'N/A')
-                temp = m.get('temp', 'N/A')
-                dewp = m.get('dewp', 'N/A')
                 wdir = m.get('wdir', 'VRB' if m.get('wdir') == 0 else m.get('wdir', 'N/A'))
                 wspd = m.get('wspd', 'N/A')
                 vis = m.get('visib', 'N/A')
                 vis_formatted = format_visibility(vis, station)
                 clouds = m.get('clouds', [])
                 wx = m.get('wxString', '')
-                
+                temp = m.get('temp', 'N/A')
+                dewp = m.get('dewp', 'N/A')
+                altim = m.get('altim', 'N/A')
+
                 cloud_str = decode_clouds(clouds)
                 wx_str = decode_wx(wx)
                 
@@ -129,36 +147,39 @@ def get_instant_weather(stations: str) -> str:
                 if flt_cat != 'N/A':
                     result_text += f"🚦 *Flight Rules:* {flt_cat}\n"
                 
-                result_text += f"🌡️ *Temp:* {temp}°C | *Dewpoint:* {dewp}°C\n"
+                # Logical Pilot Order
                 result_text += f"💨 *Winds:* {wdir}° at {wspd} knots\n"
                 result_text += f"👁️ *Visibility:* {vis_formatted}\n"
                 result_text += f"☁️ *Clouds:* {cloud_str}\n"
+                result_text += f"🌡️ *Temp:* {temp}°C | *Dewpoint:* {dewp}°C\n"
+                result_text += f"🛩️ *QNH:* {altim}\n"
                 if wx_str:
                     result_text += f"🌧️ *Weather:* {wx_str}\n"
                 result_text += "\n"
-            else:
-                raw_metar = None
-                try:
-                    noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=3)
-                    if noaa_m.status_code == 200:
-                        lines = noaa_m.text.strip().split('\n')
-                        if len(lines) >= 2:
-                            raw_metar = lines[1]
-                except Exception:
-                    pass
                 
-                if raw_metar:
-                    # Parse basic ZULU time from raw string if available
-                    parts = raw_metar.split()
-                    zulu_time = "N/A"
-                    if len(parts) > 1 and parts[1].endswith('Z'):
-                        zulu_time = f"Day {parts[1][:2]} at {parts[1][2:6]} UTC"
-                        
-                    result_text += f"✈️ *METAR*\n`{raw_metar}`\n\n"
-                    if zulu_time != "N/A":
-                        result_text += f"🕒 *Observed:* {zulu_time}\n"
+                # Update Cache
+                weather_cache[station] = (result_text, time.time())
+            else:
+                # Try Cache first as fallback
+                cached = weather_cache.get(station)
+                if cached and (time.time() - cached[1] < CACHE_TTL):
+                    result_text += cached[0]
                 else:
-                    result_text += f"✈️ *METAR*\n_No METAR data available._\n\n"
+                    # NOAA Fallback
+                    raw_metar = None
+                    try:
+                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=3)
+                        if noaa_m.status_code == 200:
+                            lines = noaa_m.text.strip().split('\n')
+                            if len(lines) >= 2:
+                                raw_metar = lines[1]
+                    except Exception:
+                        pass
+                    
+                    if raw_metar:
+                        result_text += f"✈️ *METAR*\n`{raw_metar}`\n\n"
+                    else:
+                        result_text += f"✈️ *METAR*\n_No METAR data available._\n\n"
                 
             # --- TAF ---
             if station in tafs_by_station:
@@ -185,6 +206,7 @@ def get_instant_weather(stations: str) -> str:
                     result_text += "\n"
                 result_text += "\n"
             else:
+                # TAF Fallback
                 raw_taf = None
                 try:
                     noaa_t = requests.get(f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT", timeout=3)
@@ -216,7 +238,7 @@ def get_instant_weather(stations: str) -> str:
                         atis_text = atis_data.get('datis', 'N/A')
                         result_text += f"📻 *D-ATIS*\n_{atis_text}_\n\n"
                 else:
-                    result_text += f"📻 *D-ATIS*\n_Not available online (Usually only US airports broadcast D-ATIS to the internet)._\n\n"
+                    result_text += f"📻 *D-ATIS*\n_Not available online._\n\n"
             except Exception:
                 result_text += f"📻 *D-ATIS*\n_Could not connect to ATIS server._\n\n"
                 
@@ -224,3 +246,4 @@ def get_instant_weather(stations: str) -> str:
         
     except Exception as e:
         return f"Error fetching weather data: {str(e)}"
+
