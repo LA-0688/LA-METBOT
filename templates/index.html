@@ -15,37 +15,59 @@
     <main class="container">
         <header>
             <h1><span class="highlight">MET</span>AM</h1>
-            <p>Instant METAR, TAF, and D-ATIS decoded directly from the global datalink.</p>
+            <p>Next-Gen Aviation Weather Interface</p>
         </header>
 
         <section class="search-section">
             <div class="search-box">
-                <input type="text" id="icao-input" placeholder="Enter ICAO codes (e.g. KLAX VABB CYYZ)" autocomplete="off">
-                <button id="search-btn">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                </button>
+                <input type="text" id="icao-input" placeholder="Enter ICAO codes (e.g. VABB KLAX)" autocomplete="off">
+                <button id="search-btn">FETCH</button>
             </div>
         </section>
 
-        <section id="results" class="results-container hidden">
+        <section id="results" class="results-container">
             <div class="loader" id="loader"></div>
-            <div id="weather-content" class="markdown-body"></div>
+            <div id="weather-cards" class="cards-grid"></div>
         </section>
     </main>
 
     <script>
         const input = document.getElementById('icao-input');
         const btn = document.getElementById('search-btn');
-        const resultsBox = document.getElementById('results');
-        const contentBox = document.getElementById('weather-content');
+        const cardsGrid = document.getElementById('weather-cards');
         const loader = document.getElementById('loader');
+
+        function createCard(data) {
+            // Very basic parser for the current text-based response
+            // In a real app, we would use JSON, but for now we parse the markdown blocks
+            const blocks = data.split('### 📍');
+            cardsGrid.innerHTML = '';
+            
+            blocks.forEach(block => {
+                if(!block.trim()) return;
+                const lines = block.split('\n');
+                const station = lines[0].trim();
+                const card = document.createElement('div');
+                card.className = 'weather-card';
+                
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="station-id">${station}</span>
+                        <div class="status-badge">LIVE</div>
+                    </div>
+                    <div class="card-content">
+                        ${marked.parse(block.replace(station, ''))}
+                    </div>
+                `;
+                cardsGrid.appendChild(card);
+            });
+        }
 
         async function fetchWeather() {
             const query = input.value.trim();
             if(!query) return;
 
-            resultsBox.classList.remove('hidden');
-            contentBox.innerHTML = '';
+            cardsGrid.innerHTML = '';
             loader.style.display = 'block';
             
             try {
@@ -53,41 +75,26 @@
                 const data = await response.json();
                 
                 loader.style.display = 'none';
-                
-                // Parse markdown to HTML
-                contentBox.innerHTML = marked.parse(data.text);
+                createCard(data.text);
                 
                 // Dynamic Weather Animations
                 const textRaw = data.text.toLowerCase();
-                document.body.className = ''; // reset classes
+                document.body.className = '';
                 
-                if (textRaw.includes('thunderstorm') || textRaw.includes('squall')) {
-                    document.body.className = 'weather-thunder';
-                } else if (textRaw.includes('rain') || textRaw.includes('drizzle')) {
-                    document.body.className = 'weather-rain';
-                } else if (textRaw.includes('snow') || textRaw.includes('ice pellets') || textRaw.includes('hail')) {
-                    document.body.className = 'weather-snow';
-                } else if (textRaw.includes('gust') || textRaw.includes('kt')) {
-                    // Check if wind > 20kt for "Windy" effect
-                    const windMatch = textRaw.match(/(\d+)kt/);
-                    if (windMatch && parseInt(windMatch[1]) > 20) {
-                        document.body.className = 'weather-windy';
-                    } else if (textRaw.includes('few') || textRaw.includes('skc') || textRaw.includes('clr') || textRaw.includes('nsc')) {
-                        document.body.className = 'weather-clear';
-                    }
-                } else if (textRaw.includes('few') || textRaw.includes('skc') || textRaw.includes('clr') || textRaw.includes('nsc')) {
-                    document.body.className = 'weather-clear';
-                }
+                if (textRaw.includes('thunderstorm')) document.body.className = 'weather-thunder';
+                else if (textRaw.includes('rain')) document.body.className = 'weather-rain';
+                else if (textRaw.includes('snow')) document.body.className = 'weather-snow';
+                else if (textRaw.includes('gust')) document.body.className = 'weather-windy';
+                else document.body.className = 'weather-clear';
+                
             } catch (err) {
                 loader.style.display = 'none';
-                contentBox.innerHTML = `<p class="error">Failed to connect to the global datalink.</p>`;
+                cardsGrid.innerHTML = `<p class="error">System Error: Datalink Timeout.</p>`;
             }
         }
 
         btn.addEventListener('click', fetchWeather);
-        input.addEventListener('keypress', (e) => {
-            if(e.key === 'Enter') fetchWeather();
-        });
+        input.addEventListener('keypress', (e) => { if(e.key === 'Enter') fetchWeather(); });
     </script>
 </body>
 </html>
