@@ -191,38 +191,60 @@ button svg { width: 24px; height: 24px; }
     z-index: 0;
 }
 
-/* Realistic Rain Drops */
+/* Clear Sky: Bright and Professional */
+.weather-clear {
+    background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%) !important;
+}
+
+/* Realistic Slanted Rain */
 .weather-rain #weather-layer {
-    background-image: linear-gradient(to bottom, transparent, rgba(255,255,255,0.2) 40%, transparent);
-    background-size: 2px 200px;
-    animation: rain-drops 0.15s linear infinite;
-    opacity: 0.6;
+    background-image: repeating-linear-gradient(170deg, transparent, transparent 30px, rgba(255,255,255,0.1) 30px, rgba(255,255,255,0.1) 60px);
+    background-size: 200px 1000px;
+    animation: rain-drift 0.6s linear infinite;
+    opacity: 0.8;
+}
+@keyframes rain-drift {
+    from { background-position: 0 0; }
+    to { background-position: 100px 1000px; }
 }
 
-@keyframes rain-drops {
-    from { background-position: 0 -200px; }
-    to { background-position: 0 200px; }
+/* Jagged Lightning Streaks */
+.weather-thunder #weather-layer::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 30%; width: 3px; height: 100%;
+    background: #fff;
+    box-shadow: 0 0 20px #fff, 0 0 50px #38bdf8;
+    opacity: 0;
+    clip-path: polygon(0% 0%, 100% 0%, 40% 20%, 90% 40%, 20% 60%, 70% 80%, 10% 100%, 0% 100%);
+    animation: lightning-streak 6s infinite;
+}
+@keyframes lightning-streak {
+    0%, 94%, 96%, 100% { opacity: 0; transform: scaleY(0); }
+    95% { opacity: 1; transform: scaleY(1); }
+    97% { opacity: 0.7; transform: scaleY(1) translateX(15px); }
 }
 
-/* Dramatic Lightning */
-.weather-thunder #weather-layer {
-    animation: lightning-strike 8s infinite;
-}
-
-@keyframes lightning-strike {
-    0%, 94%, 96%, 100% { background-color: transparent; }
-    95%, 97% { background-color: rgba(255, 255, 255, 0.5); }
-}
-
-/* Snow Particles */
-.weather-snow #weather-layer {
-    background-image: radial-gradient(circle, #fff 1.5px, transparent 1.5px);
-    background-size: 60px 60px;
-    animation: snow-fall 8s linear infinite;
+/* Wind Gusts: Horizontal drifting lines */
+.weather-windy #weather-layer {
+    background: repeating-linear-gradient(90deg, transparent, transparent 150px, rgba(255,255,255,0.08) 150px, rgba(255,255,255,0.08) 300px);
+    background-size: 2000px 100%;
+    animation: wind-gust 1.5s linear infinite;
     opacity: 0.5;
 }
-
-@keyframes snow-fall {
+@keyframes wind-gust {
     from { background-position: 0 0; }
-    to { background-position: 60px 600px; }
+    to { background-position: 2000px 0; }
+}
+
+/* Soft Snowflakes */
+.weather-snow #weather-layer {
+    background-image: radial-gradient(circle, #fff 1.5px, transparent 1.5px);
+    background-size: 70px 70px;
+    animation: snow-drift 10s linear infinite;
+    opacity: 0.6;
+}
+@keyframes snow-drift {
+    from { background-position: 0 0; }
+    to { background-position: 100px 700px; }
 }

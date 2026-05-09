@@ -60,12 +60,23 @@
                 // Dynamic Weather Animations
                 const textRaw = data.text.toLowerCase();
                 document.body.className = ''; // reset classes
+                
                 if (textRaw.includes('thunderstorm') || textRaw.includes('squall')) {
                     document.body.className = 'weather-thunder';
                 } else if (textRaw.includes('rain') || textRaw.includes('drizzle')) {
                     document.body.className = 'weather-rain';
                 } else if (textRaw.includes('snow') || textRaw.includes('ice pellets') || textRaw.includes('hail')) {
                     document.body.className = 'weather-snow';
+                } else if (textRaw.includes('gust') || textRaw.includes('kt')) {
+                    // Check if wind > 20kt for "Windy" effect
+                    const windMatch = textRaw.match(/(\d+)kt/);
+                    if (windMatch && parseInt(windMatch[1]) > 20) {
+                        document.body.className = 'weather-windy';
+                    } else if (textRaw.includes('few') || textRaw.includes('skc') || textRaw.includes('clr') || textRaw.includes('nsc')) {
+                        document.body.className = 'weather-clear';
+                    }
+                } else if (textRaw.includes('few') || textRaw.includes('skc') || textRaw.includes('clr') || textRaw.includes('nsc')) {
+                    document.body.className = 'weather-clear';
                 }
             } catch (err) {
                 loader.style.display = 'none';
