@@ -82,12 +82,32 @@ body::after {
     100% { background-position: 0% 50%; }
 }
 
-/* Weather Layer Base */
+/* Weather Layer Base & Sub-layers */
 #weather-layer {
     position: fixed;
     inset: 0;
     z-index: -1;
     pointer-events: none;
+    overflow: hidden;
+}
+
+#weather-layer > div {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 2s ease;
+}
+
+/* Radar Sweep: Always on but very subtle */
+.layer-radar {
+    opacity: 0.1 !important;
+    background: conic-gradient(from 0deg, transparent, var(--accent-cyan) 0.1deg, transparent 90deg);
+    animation: radar-sweep 8s linear infinite;
+}
+
+@keyframes radar-sweep {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 /* --- THE WEATHER STATES --- */
@@ -98,50 +118,63 @@ body::after {
     background-size: 400% 400%;
 }
 
-/* Lightning: Neon Cracks */
-.weather-thunder #weather-layer::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: #fff;
-    opacity: 0;
-    z-index: 5;
-    animation: thunder-flash 5s cubic-bezier(0.1, 0, 0.1, 1) infinite;
+/* Lightning: Electric Pulses */
+.weather-thunder .layer-lightning {
+    opacity: 1;
+    animation: lightning-pulse 10s infinite;
 }
 
-/* Storm Clouds */
-.weather-thunder #weather-layer::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 50% 20%, rgba(255,255,255,0.05), transparent 70%);
-    animation: cloud-pulse 3s ease-in-out infinite alternate;
+@keyframes lightning-pulse {
+    0%, 88%, 91%, 93%, 95%, 100% { background: transparent; }
+    89%, 92%, 94% { background: #fff; box-shadow: inset 0 0 200px var(--accent-cyan); }
 }
 
-@keyframes cloud-pulse {
-    from { opacity: 0.2; transform: scale(1); }
-    to { opacity: 0.5; transform: scale(1.1); }
+.weather-thunder .layer-clouds {
+    opacity: 0.4;
+    background: radial-gradient(circle at 50% 20%, rgba(255,255,255,0.1), transparent 80%);
+    animation: cloud-roll 20s linear infinite;
 }
 
-@keyframes thunder-flash {
-    0%, 85%, 90%, 95%, 100% { opacity: 0; background: #fff; filter: blur(0px); }
-    88%, 93% { 
-        opacity: 0.3; 
-        background: var(--accent-cyan); 
-        box-shadow: inset 0 0 150px var(--accent-cyan);
-        filter: blur(2px); /* Soften the flash */
-    }
+@keyframes cloud-roll {
+    from { transform: translateX(-10%) scale(1); }
+    to { transform: translateX(10%) scale(1.1); }
 }
 
-/* Rain: High-Velocity Glowing Streaks */
-.weather-rain #weather-layer::before {
-    content: '';
-    position: absolute;
-    width: 100%; height: 100%;
+/* Rain: Parallax Layers */
+.weather-rain .layer-rain-far {
+    opacity: 0.2;
     background-image: linear-gradient(to bottom, transparent, var(--accent-cyan), transparent);
-    background-size: 1px 600px;
-    animation: rain-velocity 0.5s linear infinite; /* Slowed down from 0.2s */
-    opacity: 0.3;
+    background-size: 1px 300px;
+    animation: rain-fall 0.8s linear infinite;
+}
+
+.weather-rain .layer-rain-near {
+    opacity: 0.4;
+    background-image: linear-gradient(to bottom, transparent, #fff, transparent);
+    background-size: 2px 500px;
+    animation: rain-fall 0.4s linear infinite;
+}
+
+@keyframes rain-fall {
+    from { background-position: 0 -1000px; }
+    to { background-position: 0 1000px; }
+}
+
+/* Wind: Atmospheric Particle Flow */
+.weather-windy #weather-layer::after {
+    content: '';
+    position: absolute;
+    width: 200%; height: 100%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+    background-size: 300px 200px;
+    animation: wind-warp 1.5s linear infinite;
+    filter: blur(1px);
+    opacity: 0.5;
+}
+
+@keyframes wind-warp {
+    from { transform: translateX(-20%) skewX(-20deg); }
+    to { transform: translateX(0%) skewX(-20deg); }
 }
 
 /* --- THE UI COMPONENTS --- */
