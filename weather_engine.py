@@ -1,4 +1,5 @@
 import requests, time
+from datetime import datetime
 from typing import Dict, Any
 
 # ---------- Helper: robust GET with retries ----------
@@ -18,7 +19,39 @@ def safe_get(url: str, *, timeout: int = 12, retries: int = 2) -> Any:
 
 # ---------- In-memory cache (5-minute TTL) ----------
 weather_cache: Dict[str, tuple[str, float]] = {}
+sun_cache: Dict[str, tuple[Dict[str, str], float]] = {}
 CACHE_TTL = 300 
+
+def get_sun_times(lat, lon):
+    """Fetch sunrise and sunset times for given coordinates."""
+    cache_key = f"{lat},{lon}"
+    if cache_key in sun_cache:
+        data, ts = sun_cache[cache_key]
+        if time.time() - ts < 3600: # Cache sun times for 1 hour
+            return data
+            
+    try:
+        url = f"https://api.sunrise-sunset.org/json?lat={lat}&lng={lon}&formatted=0"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            results = resp.json().get('results', {})
+            # Extract and format times to HH:MM UTC
+            def format_time(t_str):
+                try:
+                    dt = datetime.fromisoformat(t_str.replace('Z', '+00:00'))
+                    return dt.strftime('%H:%M') + "Z"
+                except:
+                    return "N/A"
+            
+            data = {
+                'sunrise': format_time(results.get('sunrise')),
+                'sunset': format_time(results.get('sunset'))
+            }
+            sun_cache[cache_key] = (data, time.time())
+            return data
+    except Exception:
+        pass
+    return {'sunrise': 'N/A', 'sunset': 'N/A'}
 
 def format_visibility(vis_sm, station_code):
     if vis_sm == 'N/A' or vis_sm is None:
@@ -116,7 +149,20 @@ def get_instant_weather(stations: str) -> str:
                 tafs_by_station[t.get('icaoId', 'Unknown')] = t
         
         for station in stations_list:
-            result_text += f"### 📍 {station}\n\n"
+            lat, lon = None, None
+            header_info = ""
+            
+            if station in metars_by_station:
+                m = metars_by_station[station]
+                lat = m.get('lat')
+                lon = m.get('lon')
+                if lat is not None and lon is not None:
+                    lat_dir = 'N' if lat >= 0 else 'S'
+                    lon_dir = 'E' if lon >= 0 else 'W'
+                    coords = f"{abs(lat):.2f}°{lat_dir} {abs(lon):.2f}°{lon_dir}"
+                    header_info = f" | **{coords}** | **🌅 {sun['sunrise']} 🌇 {sun['sunset']}**"
+
+            result_text += f"### 📍 **{station}**{header_info}\n\n"
             
             # --- METAR ---
             if station in metars_by_station:

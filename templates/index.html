@@ -38,25 +38,31 @@
         const loader = document.getElementById('loader');
 
         function createCard(data) {
-            // Very basic parser for the current text-based response
-            // In a real app, we would use JSON, but for now we parse the markdown blocks
             const blocks = data.split('### 📍');
             cardsGrid.innerHTML = '';
             
             blocks.forEach(block => {
                 if(!block.trim()) return;
                 const lines = block.split('\n');
-                const station = lines[0].trim();
+                const headerText = lines[0].replace(/\*\*/g, '').trim();
+                const parts = headerText.split('|').map(p => p.trim());
+                
+                const stationId = parts[0];
+                const extraInfo = parts.slice(1).join(' <span class="separator">|</span> ');
+                
                 const card = document.createElement('div');
                 card.className = 'weather-card';
                 
                 card.innerHTML = `
                     <div class="card-header">
-                        <span class="station-id">${station}</span>
+                        <div class="header-main">
+                            <span class="station-id">${stationId}</span>
+                            <span class="station-meta">${extraInfo}</span>
+                        </div>
                         <div class="status-badge">LIVE</div>
                     </div>
                     <div class="card-content">
-                        ${marked.parse(block.replace(station, ''))}
+                        ${marked.parse(block.replace(headerText, ''))}
                     </div>
                 `;
                 cardsGrid.appendChild(card);

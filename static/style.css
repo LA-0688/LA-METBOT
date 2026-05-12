@@ -220,11 +220,29 @@ button:hover {
 }
 
 .station-id {
-    font-size: 1.8rem;
+    font-size: 2.2rem;
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
     color: #fff;
-    text-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
+    text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
+}
+
+.header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.station-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+}
+
+.separator {
+    color: var(--glass-border);
+    margin: 0 0.5rem;
 }
 
 .status-badge {
