@@ -232,7 +232,7 @@ def get_instant_weather(stations: str) -> str:
             if station in tafs_by_station:
                 t = tafs_by_station[station]
                 raw_taf = t.get('rawTAF', 'N/A')
-                result_text += f"📅 *TAF*\n_{raw_taf}_\n\n"
+                result_text += f"📅 **TAF**\n_{raw_taf}_\n\n"
                 result_text += "*Decoded:*\n"
                 
                 for fcst in t.get('fcsts', []):
@@ -266,9 +266,9 @@ def get_instant_weather(stations: str) -> str:
                 
                 if raw_taf:
                     clean_taf = raw_taf.replace('\n', ' ')
-                    result_text += f"📅 *TAF (Forecast)*\n_{clean_taf}_\n\n"
+                    result_text += f"📅 **TAF**\n_{clean_taf}_\n\n"
                 else:
-                    result_text += f"📅 *TAF*\n_No TAF forecast available._\n\n"
+                    result_text += f"📅 **TAF**\n_No TAF forecast available._\n\n"
                 
             # --- ATIS ---
             try:
