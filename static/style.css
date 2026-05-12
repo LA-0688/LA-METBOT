@@ -98,18 +98,6 @@ body::after {
     transition: opacity 2s ease;
 }
 
-/* Radar Sweep: Professional HUD Scanner */
-.layer-radar {
-    opacity: 0.15 !important;
-    background: conic-gradient(from 0deg, transparent, var(--accent-cyan) 0.5deg, transparent 60deg);
-    animation: radar-sweep 6s linear infinite;
-}
-
-@keyframes radar-sweep {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
 /* --- THE WEATHER STATES --- */
 
 /* Clear Sky: Deep Glowing Azure */
@@ -372,8 +360,8 @@ button:hover {
 }
 
 .station-id {
-    font-size: 3.2rem; /* One size bigger */
-    font-weight: 900;
+    font-size: 2.2rem;
+    font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
     color: #fff;
     text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);

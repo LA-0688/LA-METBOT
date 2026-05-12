@@ -16,7 +16,6 @@
         <div class="layer-rain-far"></div>
         <div class="layer-rain-near"></div>
         <div class="layer-lightning"></div>
-        <div class="layer-radar"></div>
     </div>
     <main class="container">
         <header>
@@ -101,9 +100,9 @@
                     const visRegex = /\b(0\d{3})(?![Z])\b/g;
                     highlighted = highlighted.replace(visRegex, '<span class="metar-threat">$1</span>');
 
-                    // 3. Highlight High/Gusty Winds (e.g., G30KT or speeds 25KT+)
-                    // Matches wind blocks like 25015G35KT or 25030KT
-                    const windRegex = /\b(\d{3}(?:2[5-9]|[3-9]\d)G?\d{0,2}KT)\b/g;
+                    // 3. Highlight High/Gusty Winds (e.g., G20KT or speeds 10KT+)
+                    // Matches wind blocks like 25010G15KT or 25012KT
+                    const windRegex = /\b(\d{3}(?:[1-9]\d)G?\d{0,2}KT)\b/g;
                     highlighted = highlighted.replace(windRegex, '<span class="metar-threat">$1</span>');
                     
                     // Also catch standalone gusts if they occur
