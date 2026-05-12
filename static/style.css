@@ -134,10 +134,10 @@ body::after {
 @keyframes lightning-bolt {
     0%, 80%, 85%, 90%, 95%, 100% { background: transparent; opacity: 0; }
     82%, 87%, 92% { 
-        background: #fff; 
+        background: linear-gradient(110deg, transparent 40%, #fff 45%, #fff 55%, transparent 60%);
         opacity: 1;
         box-shadow: 0 0 150px #fff, inset 0 0 300px var(--accent-cyan);
-        filter: brightness(4) contrast(2);
+        filter: brightness(4) contrast(2) skewX(-20deg);
     }
 }
 
