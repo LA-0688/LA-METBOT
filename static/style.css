@@ -246,6 +246,38 @@ h1 {
     text-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
 }
 
+.location-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    margin-top: 0.5rem;
+    opacity: 0.6;
+    text-transform: uppercase;
+}
+
+/* Weather-Reactive Title Animations */
+.weather-rain #main-title::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(to bottom, transparent, var(--accent-cyan), transparent);
+    background-size: 2px 20px;
+    animation: rain-fall 0.5s linear infinite;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+    opacity: 0.3;
+}
+
+.weather-thunder #main-title {
+    animation: title-glitch 4s infinite;
+}
+
+@keyframes title-glitch {
+    0%, 90%, 95%, 100% { transform: translate(0); filter: brightness(1); }
+    91%, 93% { transform: translate(2px, -1px); filter: brightness(2) contrast(1.5); }
+}
+
 .tagline {
     text-align: center;
     text-transform: uppercase;

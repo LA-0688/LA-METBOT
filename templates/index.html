@@ -20,9 +20,14 @@
     </div>
     <main class="container">
         <header>
-            <div class="header-main-brand">
-                <h1><span class="brand-icon">🌅</span><span class="highlight">MET</span>AM<span class="brand-icon">🌙☁️</span></h1>
+            <div class="header-main-brand" id="brand-container">
+                <h1 id="main-title">
+                    <span id="title-icon-left" class="brand-icon"></span>
+                    <span class="highlight">MET</span>AM
+                    <span id="title-icon-right" class="brand-icon"></span>
+                </h1>
                 <div id="utc-clock" class="utc-clock">--:--:-- UTC</div>
+                <div id="location-tag" class="location-tag">Detecting Local Uplink...</div>
             </div>
             <p class="tagline">Next-Gen Aviation Weather Interface</p>
         </header>
@@ -105,14 +110,49 @@
             });
         }
 
-        // UTC Clock Logic
-        function updateClock() {
+        // UTC Clock & Dynamic Title Logic
+        function updateClockAndIcons() {
             const now = new Date();
+            const hours = now.getUTCHours();
             const utc = now.toISOString().split('T')[1].split('.')[0] + ' UTC';
             document.getElementById('utc-clock').textContent = utc;
+
+            const iconLeft = document.getElementById('title-icon-left');
+            const iconRight = document.getElementById('title-icon-right');
+            const title = document.getElementById('main-title');
+
+            // Time of day logic
+            if (hours >= 5 && hours < 11) {
+                iconLeft.textContent = '🌅'; // Sunrise
+                iconRight.textContent = '☁️';
+            } else if (hours >= 11 && hours < 17) {
+                iconLeft.textContent = '☀️'; // Noon
+                iconRight.textContent = '🌤️';
+            } else if (hours >= 17 && hours < 20) {
+                iconLeft.textContent = '🌇'; // Sunset
+                iconRight.textContent = '🌆';
+            } else {
+                iconLeft.textContent = '🌙'; // Night
+                iconRight.textContent = '✨';
+            }
         }
-        setInterval(updateClock, 1000);
-        updateClock();
+        setInterval(updateClockAndIcons, 1000);
+        updateClockAndIcons();
+
+        // Location Detection
+        async function detectLocation() {
+            const tag = document.getElementById('location-tag');
+            try {
+                const resp = await fetch('https://ipapi.co/json/');
+                const data = await resp.json();
+                if (data.city) {
+                    tag.textContent = `LOCAL UPLINK: ${data.city.toUpperCase()}, ${data.country_code} | ${data.org}`;
+                }
+            } catch (err) {
+                tag.textContent = 'LOCAL UPLINK: OFFLINE';
+            }
+        }
+        detectLocation();
 
         async function fetchWeather() {
             const query = input.value.trim();
