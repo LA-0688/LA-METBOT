@@ -86,8 +86,16 @@
                         'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BR', 'BLDU'
                     ];
                     // 1. Highlight Weather Phenomenon (TS, FG, etc.)
-                    const phenomRegex = new RegExp(`\\b([+-]?(?:${criticalCodes.join('|')})[A-Z]*)\\b`, 'g');
-                    let highlighted = metar.replace(phenomRegex, '<span class="metar-threat">$1</span>');
+                    // Updated to ensure it doesn't gobble up station IDs like VABB (matching VA + BB)
+                    // We only allow known weather suffixes or standalone codes
+                    const phenomRegex = new RegExp(`\\b([+-]?(?:${criticalCodes.join('|')})(?:RA|SN|DZ|FG|BR|HZ|FU|DU|GR|GS|PL|SG|IC|UP|VA|PO|SQ|FC|SS|DS)?)\\b`, 'g');
+                    let highlighted = metar.replace(phenomRegex, (match) => {
+                        // Avoid matching common 4-letter ICAO station prefixes if they don't look like weather
+                        if (match.length === 4 && /^(V|K|E|P|O|R|S|U|Z)/.test(match) && !/TS|RA|SN|FG|BR/.test(match)) {
+                           return match;
+                        }
+                        return `<span class="metar-threat">${match}</span>`;
+                    });
                     
                     // 2. Highlight Low Visibility (ICAO 4-digit below 1000m)
                     const visRegex = /\b(0\d{3})(?![Z])\b/g;
