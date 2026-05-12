@@ -20,7 +20,10 @@
     </div>
     <main class="container">
         <header>
-            <h1><span class="highlight">MET</span>AM</h1>
+            <div class="header-top">
+                <h1><span class="highlight">MET</span>AM</h1>
+                <div id="utc-clock" class="utc-clock">--:--:-- UTC</div>
+            </div>
             <p>Next-Gen Aviation Weather Interface</p>
         </header>
 
@@ -28,6 +31,9 @@
             <div class="search-box">
                 <input type="text" id="icao-input" placeholder="Enter ICAO codes (e.g. VABB KLAX)" autocomplete="off">
                 <button id="search-btn">FETCH</button>
+            </div>
+            <div class="progress-container" id="progress-container">
+                <div class="progress-bar" id="progress-bar"></div>
             </div>
         </section>
 
@@ -84,7 +90,6 @@
                             </label>
                             <span class="toggle-label decoded-label">Decoded</span>
                         </div>
-                        <div class="status-badge">LIVE</div>
                     </div>
                     <div class="card-content">
                         <div class="raw-view">
@@ -100,6 +105,15 @@
             });
         }
 
+        // UTC Clock Logic
+        function updateClock() {
+            const now = new Date();
+            const utc = now.toISOString().split('T')[1].split('.')[0] + ' UTC';
+            document.getElementById('utc-clock').textContent = utc;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
         async function fetchWeather() {
             const query = input.value.trim();
             if(!query) return;
@@ -107,10 +121,22 @@
             cardsGrid.innerHTML = '';
             loader.style.display = 'block';
             
+            const progressContainer = document.getElementById('progress-container');
+            const progressBar = document.getElementById('progress-bar');
+            progressContainer.style.opacity = '1';
+            progressBar.style.width = '30%';
+
             try {
                 const response = await fetch(`/api/weather?stations=${encodeURIComponent(query)}`);
+                progressBar.style.width = '70%';
                 const data = await response.json();
                 
+                progressBar.style.width = '100%';
+                setTimeout(() => { 
+                    progressContainer.style.opacity = '0';
+                    progressBar.style.width = '0%';
+                }, 500);
+
                 loader.style.display = 'none';
                 createCard(data.text);
                 
@@ -118,11 +144,16 @@
                 const textRaw = data.text.toLowerCase();
                 document.body.className = '';
                 
-                if (textRaw.includes('thunderstorm') || textRaw.includes('thunder')) {
+                // Broaden detection for all types of rain and storm indicators
+                const isThunder = textRaw.includes('thunderstorm') || textRaw.includes('thunder') || textRaw.includes(' ts') || textRaw.includes('tsra');
+                const isRain = textRaw.includes('rain') || textRaw.includes('showers') || textRaw.includes('shra') || textRaw.includes('ra') || textRaw.includes('drizzle') || textRaw.includes('dz');
+                const isWindy = textRaw.includes('gust') || textRaw.includes('windy') || textRaw.includes('g') && textRaw.match(/g\d{2}/);
+
+                if (isThunder) {
                     document.body.className = 'weather-thunder';
-                } else if (textRaw.includes('rain') || textRaw.includes('showers') || textRaw.includes('shra') || textRaw.includes('drizzle')) {
+                } else if (isRain) {
                     document.body.className = 'weather-rain';
-                } else if (textRaw.includes('gust') || textRaw.includes('windy')) {
+                } else if (isWindy) {
                     document.body.className = 'weather-windy';
                 } else {
                     document.body.className = 'weather-clear';
@@ -130,6 +161,7 @@
                 
             } catch (err) {
                 loader.style.display = 'none';
+                progressContainer.style.opacity = '0';
                 cardsGrid.innerHTML = `<p class="error">System Error: Datalink Timeout.</p>`;
             }
         }
