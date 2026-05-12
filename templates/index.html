@@ -83,16 +83,24 @@
                 
                 function highlightThreats(metar) {
                     const criticalCodes = [
-                        'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BR', 'HZ', 'FU', 'BLDU'
+                        'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BR', 'BLDU'
                     ];
-                    // 1. Highlight Weather Phenomenon
+                    // 1. Highlight Weather Phenomenon (TS, FG, etc.)
                     const phenomRegex = new RegExp(`\\b([+-]?(?:${criticalCodes.join('|')})[A-Z]*)\\b`, 'g');
                     let highlighted = metar.replace(phenomRegex, '<span class="metar-threat">$1</span>');
                     
-                    // 2. Highlight Low Visibility (ICAO 4-digit below 1000m, e.g., 0800, 0150)
-                    // Matches 4 digits starting with 0, but NOT ending in Z (which would be time)
+                    // 2. Highlight Low Visibility (ICAO 4-digit below 1000m)
                     const visRegex = /\b(0\d{3})(?![Z])\b/g;
                     highlighted = highlighted.replace(visRegex, '<span class="metar-threat">$1</span>');
+
+                    // 3. Highlight High/Gusty Winds (e.g., G30KT or speeds 25KT+)
+                    // Matches wind blocks like 25015G35KT or 25030KT
+                    const windRegex = /\b(\d{3}(?:2[5-9]|[3-9]\d)G?\d{0,2}KT)\b/g;
+                    highlighted = highlighted.replace(windRegex, '<span class="metar-threat">$1</span>');
+                    
+                    // Also catch standalone gusts if they occur
+                    const gustRegex = /\bG\d{2,3}KT\b/g;
+                    highlighted = highlighted.replace(gustRegex, '<span class="metar-threat">$1</span>');
                     
                     return highlighted;
                 }
