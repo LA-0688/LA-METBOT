@@ -118,11 +118,15 @@
                 const textRaw = data.text.toLowerCase();
                 document.body.className = '';
                 
-                if (textRaw.includes('thunderstorm')) document.body.className = 'weather-thunder';
-                else if (textRaw.includes('rain')) document.body.className = 'weather-rain';
-                else if (textRaw.includes('snow')) document.body.className = 'weather-snow';
-                else if (textRaw.includes('gust')) document.body.className = 'weather-windy';
-                else document.body.className = 'weather-clear';
+                if (textRaw.includes('thunderstorm') || textRaw.includes('thunder')) {
+                    document.body.className = 'weather-thunder';
+                } else if (textRaw.includes('rain') || textRaw.includes('showers') || textRaw.includes('shra') || textRaw.includes('drizzle')) {
+                    document.body.className = 'weather-rain';
+                } else if (textRaw.includes('gust') || textRaw.includes('windy')) {
+                    document.body.className = 'weather-windy';
+                } else {
+                    document.body.className = 'weather-clear';
+                }
                 
             } catch (err) {
                 loader.style.display = 'none';

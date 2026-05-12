@@ -98,11 +98,11 @@ body::after {
     transition: opacity 2s ease;
 }
 
-/* Radar Sweep: Always on but very subtle */
+/* Radar Sweep: Professional HUD Scanner */
 .layer-radar {
-    opacity: 0.1 !important;
-    background: conic-gradient(from 0deg, transparent, var(--accent-cyan) 0.1deg, transparent 90deg);
-    animation: radar-sweep 8s linear infinite;
+    opacity: 0.15 !important;
+    background: conic-gradient(from 0deg, transparent, var(--accent-cyan) 0.5deg, transparent 60deg);
+    animation: radar-sweep 6s linear infinite;
 }
 
 @keyframes radar-sweep {
@@ -118,46 +118,50 @@ body::after {
     background-size: 400% 400%;
 }
 
-/* Lightning: Electric Pulses */
+/* Lightning: Electric Bolts & Bloom */
 .weather-thunder .layer-lightning {
     opacity: 1;
-    animation: lightning-pulse 10s infinite;
+    animation: lightning-bolt 12s infinite;
 }
 
-@keyframes lightning-pulse {
-    0%, 88%, 91%, 93%, 95%, 100% { background: transparent; }
-    89%, 92%, 94% { background: #fff; box-shadow: inset 0 0 200px var(--accent-cyan); }
+@keyframes lightning-bolt {
+    0%, 94%, 96%, 98%, 100% { background: transparent; }
+    95%, 97%, 99% { 
+        background: #fff; 
+        box-shadow: 0 0 100px #fff, inset 0 0 200px var(--accent-cyan);
+        filter: blur(1px) brightness(2);
+    }
 }
 
 .weather-thunder .layer-clouds {
-    opacity: 0.4;
-    background: radial-gradient(circle at 50% 20%, rgba(255,255,255,0.1), transparent 80%);
-    animation: cloud-roll 20s linear infinite;
+    opacity: 0.5;
+    background: radial-gradient(circle at 50% 20%, rgba(255,255,255,0.15), transparent 85%);
+    animation: cloud-roll 15s linear infinite;
 }
 
 @keyframes cloud-roll {
-    from { transform: translateX(-10%) scale(1); }
-    to { transform: translateX(10%) scale(1.1); }
+    from { transform: translateX(-15%) scale(1); }
+    to { transform: translateX(15%) scale(1.1); }
 }
 
-/* Rain: Parallax Layers */
+/* Rain: Heavy HUD Streaks */
 .weather-rain .layer-rain-far {
-    opacity: 0.2;
+    opacity: 0.3;
     background-image: linear-gradient(to bottom, transparent, var(--accent-cyan), transparent);
-    background-size: 1px 300px;
-    animation: rain-fall 0.8s linear infinite;
+    background-size: 2px 400px; /* Thicker */
+    animation: rain-fall 0.6s linear infinite;
 }
 
 .weather-rain .layer-rain-near {
-    opacity: 0.4;
+    opacity: 0.5;
     background-image: linear-gradient(to bottom, transparent, #fff, transparent);
-    background-size: 2px 500px;
-    animation: rain-fall 0.4s linear infinite;
+    background-size: 3px 600px; /* Thicker */
+    animation: rain-fall 0.3s linear infinite;
 }
 
 @keyframes rain-fall {
-    from { background-position: 0 -1000px; }
-    to { background-position: 0 1000px; }
+    from { background-position: 0 -1200px; }
+    to { background-position: 0 1200px; }
 }
 
 /* Wind: Atmospheric Particle Flow */
