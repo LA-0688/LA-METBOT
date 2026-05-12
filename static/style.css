@@ -236,16 +236,33 @@ h1 {
 
 .location-tag {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.85rem;
-    color: var(--accent-cyan);
-    letter-spacing: 1px;
     margin-top: 0.8rem;
-    text-transform: uppercase;
-    font-weight: 700;
-    text-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
     background: rgba(34, 211, 238, 0.05);
-    padding: 2px 12px;
+    padding: 4px 16px;
     border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.tag-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    font-weight: 400;
+}
+
+.tag-data {
+    font-size: 0.9rem;
+    color: var(--accent-cyan);
+    font-weight: 800;
+    text-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
+    text-transform: uppercase;
+}
+
+.tag-separator {
+    color: var(--glass-border);
+    margin: 0 0.5rem;
 }
 
 /* Weather-Reactive Title Overlays (Animations Removed as requested) */

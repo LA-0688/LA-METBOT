@@ -185,7 +185,7 @@
                     const localNow = new Date();
                     const localTimeStr = localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                     if (data.city) {
-                        tag.textContent = `CURRENT LOCATION: ${data.city.toUpperCase()}, ${data.country_code} | LOCAL TIME: ${localTimeStr}`;
+                        tag.innerHTML = `<span class="tag-label">CURRENT LOCATION:</span> <span class="tag-data">${data.city.toUpperCase()}, ${data.country_code}</span> <span class="tag-separator">|</span> <span class="tag-label">LOCAL TIME:</span> <span class="tag-data">${localTimeStr}</span>`;
                     }
                 }
                 setInterval(updateLocalTime, 1000);
