@@ -139,17 +139,25 @@
         setInterval(updateClockAndIcons, 1000);
         updateClockAndIcons();
 
-        // Location Detection
+        // Location & Local Time Detection
         async function detectLocation() {
             const tag = document.getElementById('location-tag');
             try {
                 const resp = await fetch('https://ipapi.co/json/');
                 const data = await resp.json();
-                if (data.city) {
-                    tag.textContent = `LOCAL UPLINK: ${data.city.toUpperCase()}, ${data.country_code} | ${data.org}`;
+                
+                function updateLocalTime() {
+                    const localNow = new Date();
+                    const localTimeStr = localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    if (data.city) {
+                        tag.textContent = `CURRENT LOCATION: ${data.city.toUpperCase()}, ${data.country_code} | LOCAL TIME: ${localTimeStr}`;
+                    }
                 }
+                setInterval(updateLocalTime, 1000);
+                updateLocalTime();
+                
             } catch (err) {
-                tag.textContent = 'LOCAL UPLINK: OFFLINE';
+                tag.textContent = 'CURRENT LOCATION: OFFLINE';
             }
         }
         detectLocation();
