@@ -221,6 +221,16 @@ h1 {
     -webkit-text-fill-color: transparent;
     filter: drop-shadow(0 0 30px rgba(34, 211, 238, 0.15));
     font-family: 'Outfit', sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.brand-icon {
+    font-size: 3rem;
+    filter: drop-shadow(0 0 15px rgba(255,255,255,0.4));
+    -webkit-text-fill-color: initial;
+    background: none;
 }
 
 .utc-clock {
