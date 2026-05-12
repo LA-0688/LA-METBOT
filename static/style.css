@@ -236,12 +236,16 @@ h1 {
 
 .location-tag {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    color: var(--text-dim);
+    font-size: 0.85rem;
+    color: var(--accent-cyan);
     letter-spacing: 1px;
-    margin-top: 0.5rem;
-    opacity: 0.6;
+    margin-top: 0.8rem;
     text-transform: uppercase;
+    font-weight: 700;
+    text-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
+    background: rgba(34, 211, 238, 0.05);
+    padding: 2px 12px;
+    border-radius: 4px;
 }
 
 /* Weather-Reactive Title Overlays (Animations Removed as requested) */
