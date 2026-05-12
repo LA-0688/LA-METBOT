@@ -41,17 +41,28 @@
             const blocks = data.split('### 📍');
             cardsGrid.innerHTML = '';
             
-            blocks.forEach(block => {
+            blocks.forEach((block, index) => {
                 if(!block.trim()) return;
                 const lines = block.split('\n');
-                const headerText = lines[0].replace(/\*\*/g, '').trim();
-                const parts = headerText.split('|').map(p => p.trim());
+                const headerText = lines[0].trim();
+                const cleanHeader = headerText.replace(/\*\*/g, '');
+                const parts = cleanHeader.split('|').map(p => p.trim());
                 
                 const stationId = parts[0];
                 const extraInfo = parts.slice(1).join(' <span class="separator">|</span> ');
                 
                 const card = document.createElement('div');
                 card.className = 'weather-card';
+                const cardId = `card-${index}`;
+                
+                const rawContent = [];
+                const decodedContent = [];
+                let isInsideRaw = false;
+
+                // Simple parser to separate Raw vs Decoded
+                // We'll look for blocks of code (METAR) or italicized lines (TAF)
+                const fullText = block.replace(headerText, '').trim();
+                const parsedHTML = marked.parse(fullText);
                 
                 card.innerHTML = `
                     <div class="card-header">
@@ -59,10 +70,24 @@
                             <span class="station-id">${stationId}</span>
                             <span class="station-meta">${extraInfo}</span>
                         </div>
+                        <div class="view-toggle">
+                            <span class="toggle-label raw-label">Raw</span>
+                            <label class="switch">
+                                <input type="checkbox" onchange="this.closest('.weather-card').classList.toggle('show-decoded')">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="toggle-label decoded-label">Decoded</span>
+                        </div>
                         <div class="status-badge">LIVE</div>
                     </div>
                     <div class="card-content">
-                        ${marked.parse(block.replace(headerText, ''))}
+                        <div class="raw-view">
+                            ${parsedHTML.match(/<code>[\s\S]*?<\/code>/g)?.join('<br>') || 'No raw data.'}
+                            ${parsedHTML.match(/<em>.*?TAF.*?<\/em>/g)?.join('<br>') || ''}
+                        </div>
+                        <div class="decoded-view">
+                            ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '').replace(/<em>.*?TAF.*?<\/em>/g, '')}
+                        </div>
                     </div>
                 `;
                 cardsGrid.appendChild(card);
