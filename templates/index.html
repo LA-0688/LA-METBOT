@@ -129,8 +129,12 @@
                     </div>
                     <div class="card-content">
                         <div class="raw-view">
-                            ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br>')}
-                            ${(parsedHTML.match(/<em>.*?TAF.*?<\/em>/g) || []).map(taf => highlightThreats(taf)).join('<br>')}
+                            <div class="metar-block">
+                                ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br><br>')}
+                            </div>
+                            <div class="taf-block" style="margin-top: 1.5rem;">
+                                ${(parsedHTML.match(/<em>.*?TAF.*?<\/em>/g) || []).map(taf => highlightThreats(taf)).join('<br><br>')}
+                            </div>
                         </div>
                         <div class="decoded-view">
                             ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '').replace(/<em>.*?TAF.*?<\/em>/g, '')}
