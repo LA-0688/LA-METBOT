@@ -494,3 +494,17 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+
+.metar-threat {
+    color: #fbbf24; /* Amber Warning */
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    font-weight: 800;
+    text-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+    animation: threat-pulse 2s infinite;
+}
+
+@keyframes threat-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
