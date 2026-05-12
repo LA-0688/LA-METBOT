@@ -42,6 +42,7 @@ body::after {
     background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.01) 2px, rgba(255,255,255,0.01) 4px);
     pointer-events: none;
     z-index: 11;
+    opacity: 0.5; /* Slightly dimmed scanlines */
 }
 
 /* Live Background Glows */
@@ -52,6 +53,27 @@ body::after {
     background: linear-gradient(-45deg, #0f172a, #1e1b4b, #0c4a6e);
     background-size: 400% 400%;
     animation: atmospheric-drift 15s ease infinite;
+}
+
+@keyframes rain-velocity {
+    from { background-position: 0 -600px; }
+    to { background-position: 0 600px; }
+}
+
+/* Wind: Atmospheric Particle Flow */
+.weather-windy #weather-layer::after {
+    content: '';
+    position: absolute;
+    width: 200%; height: 100%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+    background-size: 300px 200px;
+    animation: wind-warp 1.5s linear infinite;
+    filter: blur(1px);
+}
+
+@keyframes wind-warp {
+    from { transform: translateX(-20%) skewX(-20deg); }
+    to { transform: translateX(0%) skewX(-20deg); }
 }
 
 @keyframes atmospheric-drift {
@@ -76,38 +98,6 @@ body::after {
     background-size: 400% 400%;
 }
 
-/* Rain: High-Velocity Glowing Streaks */
-.weather-rain #weather-layer::before {
-    content: '';
-    position: absolute;
-    width: 100%; height: 100%;
-    background-image: linear-gradient(to bottom, transparent, var(--accent-cyan), transparent);
-    background-size: 1px 400px;
-    animation: rain-velocity 0.3s linear infinite;
-    opacity: 0.3;
-}
-
-@keyframes rain-velocity {
-    from { background-position: 0 -400px; }
-    to { background-position: 0 400px; }
-}
-
-/* Wind: Atmospheric Particle Flow */
-.weather-windy #weather-layer::after {
-    content: '';
-    position: absolute;
-    width: 200%; height: 100%;
-    background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
-    background-size: 300px 200px;
-    animation: wind-warp 1.5s linear infinite;
-    filter: blur(1px);
-}
-
-@keyframes wind-warp {
-    from { transform: translateX(-20%) skewX(-20deg); }
-    to { transform: translateX(0%) skewX(-20deg); }
-}
-
 /* Lightning: Neon Cracks */
 .weather-thunder #weather-layer::before {
     content: '';
@@ -116,12 +106,42 @@ body::after {
     background: #fff;
     opacity: 0;
     z-index: 5;
-    animation: thunder-flash 8s infinite;
+    animation: thunder-flash 5s cubic-bezier(0.1, 0, 0.1, 1) infinite;
+}
+
+/* Storm Clouds */
+.weather-thunder #weather-layer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 20%, rgba(255,255,255,0.05), transparent 70%);
+    animation: cloud-pulse 3s ease-in-out infinite alternate;
+}
+
+@keyframes cloud-pulse {
+    from { opacity: 0.2; transform: scale(1); }
+    to { opacity: 0.5; transform: scale(1.1); }
 }
 
 @keyframes thunder-flash {
-    0%, 94%, 96%, 98%, 100% { opacity: 0; }
-    95%, 97% { opacity: 0.2; }
+    0%, 85%, 90%, 95%, 100% { opacity: 0; background: #fff; filter: blur(0px); }
+    88%, 93% { 
+        opacity: 0.3; 
+        background: var(--accent-cyan); 
+        box-shadow: inset 0 0 150px var(--accent-cyan);
+        filter: blur(2px); /* Soften the flash */
+    }
+}
+
+/* Rain: High-Velocity Glowing Streaks */
+.weather-rain #weather-layer::before {
+    content: '';
+    position: absolute;
+    width: 100%; height: 100%;
+    background-image: linear-gradient(to bottom, transparent, var(--accent-cyan), transparent);
+    background-size: 1px 600px;
+    animation: rain-velocity 0.5s linear infinite; /* Slowed down from 0.2s */
+    opacity: 0.3;
 }
 
 /* --- THE UI COMPONENTS --- */
@@ -187,9 +207,9 @@ button:hover {
 
 .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-    gap: 2rem;
-    margin-top: 2rem;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 4rem; /* More space between cards */
+    margin-top: 4rem;
     width: 100%;
 }
 
@@ -229,8 +249,10 @@ button:hover {
 
 .header-main {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
 }
 
 .station-meta {
@@ -238,12 +260,73 @@ button:hover {
     font-size: 0.85rem;
     color: var(--text-dim);
     letter-spacing: 0.5px;
+    background: rgba(255,255,255,0.05);
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--glass-border);
 }
 
 .separator {
-    color: var(--glass-border);
+    color: var(--accent-cyan);
+    opacity: 0.5;
     margin: 0 0.5rem;
 }
+
+/* --- TOGGLE SWITCH --- */
+.view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-left: auto;
+}
+
+.toggle-label {
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 20px;
+}
+
+.switch input { opacity: 0; width: 0; height: 0; }
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background-color: var(--glass-border);
+    transition: .4s;
+    border-radius: 34px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider { background-color: var(--accent-cyan); }
+input:checked + .slider:before { transform: translateX(20px); }
+
+/* Visibility Control */
+.decoded-view { display: none; }
+.show-decoded .decoded-view { display: block; }
+.show-decoded .raw-label { color: var(--text-dim); }
+.show-decoded .decoded-label { color: var(--accent-cyan); }
+.raw-label { color: var(--accent-cyan); }
 
 .status-badge {
     background: rgba(34, 211, 238, 0.1);
