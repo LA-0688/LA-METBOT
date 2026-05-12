@@ -190,18 +190,18 @@ def get_instant_weather(stations: str) -> str:
                 if name != 'Unknown Station':
                     result_text += f"🏢 *Facility:* {name}\n"
                 if obs_time != 'N/A':
-                    result_text += f"🕒 *Observed:* {obs_time}\n"
+                    result_text += f"🕒 *Date/Time:* {obs_time}\n"
                 if flt_cat != 'N/A':
                     result_text += f"🚦 *Flight Rules:* {flt_cat}\n"
                 
-                # Logical Pilot Order
-                result_text += f"💨 *Winds:* {wdir}° at {wspd} knots\n"
+                # ICAO/FAA Logical Order
+                result_text += f"💨 *Wind:* {wdir}° at {wspd} knots\n"
                 result_text += f"👁️ *Visibility:* {vis_formatted}\n"
-                result_text += f"☁️ *Clouds:* {cloud_str}\n"
-                result_text += f"🌡️ *Temp:* {temp}°C | *Dewpoint:* {dewp}°C\n"
-                result_text += f"🛩️ *QNH:* {altim}\n"
                 if wx_str:
-                    result_text += f"🌧️ *Weather:* {wx_str}\n"
+                    result_text += f"🌧️ *Present Weather:* {wx_str}\n"
+                result_text += f"☁️ *Sky Condition:* {cloud_str}\n"
+                result_text += f"🌡️ *Temperature:* {temp}°C | *Dewpoint:* {dewp}°C\n"
+                result_text += f"🛩️ *Altimeter:* {altim}\n"
                 result_text += "\n"
                 
                 # Update Cache
@@ -232,8 +232,8 @@ def get_instant_weather(stations: str) -> str:
             if station in tafs_by_station:
                 t = tafs_by_station[station]
                 raw_taf = t.get('rawTAF', 'N/A')
-                result_text += f"📅 *TAF (Forecast)*\n_{raw_taf}_\n\n"
-                result_text += "*Decoded Forecast:*\n"
+                result_text += f"📅 *TAF*\n_{raw_taf}_\n\n"
+                result_text += "*Decoded:*\n"
                 
                 for fcst in t.get('fcsts', []):
                     change = fcst.get('fcstChange') or 'INITIAL'
