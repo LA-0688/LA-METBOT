@@ -256,21 +256,13 @@ h1 {
     text-transform: uppercase;
 }
 
-/* Weather-Reactive Title Animations */
+/* Weather-Reactive Title Overlays (Animations Removed as requested) */
 .weather-rain #main-title::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: linear-gradient(to bottom, transparent, var(--accent-cyan), transparent);
-    background-size: 2px 20px;
-    animation: rain-fall 0.5s linear infinite;
-    pointer-events: none;
-    mix-blend-mode: overlay;
-    opacity: 0.3;
+    display: none;
 }
 
 .weather-thunder #main-title {
-    animation: title-glitch 4s infinite;
+    animation: none;
 }
 
 @keyframes title-glitch {
@@ -380,8 +372,8 @@ button:hover {
 }
 
 .station-id {
-    font-size: 2.2rem;
-    font-weight: 800;
+    font-size: 3.2rem; /* One size bigger */
+    font-weight: 900;
     font-family: 'JetBrains Mono', monospace;
     color: #fff;
     text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
