@@ -130,10 +130,10 @@
                     <div class="card-content">
                         <div class="raw-view">
                             <div class="metar-block">
-                                ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br><br>')}
+                                ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br>')}
                             </div>
-                            <div class="taf-block" style="margin-top: 1.5rem;">
-                                ${(parsedHTML.match(/<em>.*?TAF.*?<\/em>/g) || []).map(taf => highlightThreats(taf)).join('<br><br>')}
+                            <div class="taf-block" style="margin-top: 0.5rem;">
+                                ${(parsedHTML.match(/<em>.*?TAF.*?<\/em>/g) || []).map(taf => highlightThreats(taf)).join('<br>')}
                             </div>
                         </div>
                         <div class="decoded-view">

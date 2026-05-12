@@ -458,13 +458,17 @@ input:checked + .slider:before { transform: translateX(20px); }
     border: 1px solid var(--accent-cyan);
 }
 
-.card-content {
-    color: var(--text-primary);
+.raw-view code, .raw-view em {
     font-size: 1rem;
-    line-height: 1.6;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    display: block;
+    line-height: 1.5;
 }
 
-.card-content h3 { display: none; } /* Hide the redundant station title */
+.raw-view em {
+    color: var(--text-dim);
+}
 
 .card-content strong {
     color: var(--accent-cyan);
