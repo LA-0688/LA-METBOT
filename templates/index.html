@@ -115,7 +115,7 @@
                     <div class="card-content">
                         <div class="raw-view">
                             ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br>')}
-                            ${parsedHTML.match(/<em>.*?TAF.*?<\/em>/g)?.join('<br>') || ''}
+                            ${(parsedHTML.match(/<em>.*?TAF.*?<\/em>/g) || []).map(taf => highlightThreats(taf)).join('<br>')}
                         </div>
                         <div class="decoded-view">
                             ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '').replace(/<em>.*?TAF.*?<\/em>/g, '')}
