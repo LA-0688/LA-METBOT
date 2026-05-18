@@ -53,8 +53,9 @@
         const cardsGrid = document.getElementById('weather-cards');
         const loader = document.getElementById('loader');
 
-        function createCard(data) {
+        function createCardElement(data) {
             const blocks = data.split('### 📍');
+            let resultCard = null;
             
             blocks.forEach((block, index) => {
                 if(!block.trim()) return;
@@ -203,8 +204,9 @@
                         </div>
                     </div>
                 `;
-                cardsGrid.appendChild(card);
+                resultCard = card;
             });
+            return resultCard;
         }
 
         // UTC Clock & Dynamic Title Logic
@@ -330,11 +332,13 @@
                     const response = await fetch(`/api/weather?stations=${stationUpper}`);
                     const data = await response.json();
                     
-                    // Remove placeholder
-                    placeholder.remove();
-                    
                     // Create real card
-                    createCard(data.text);
+                    const realCard = createCardElement(data.text);
+                    
+                    // Replace placeholder with real card to maintain order
+                    if (realCard) {
+                        placeholder.replaceWith(realCard);
+                    }
                     
                     // Dynamic Weather Animations (based on the received station's weather)
                     const textRaw = data.text.toLowerCase();
