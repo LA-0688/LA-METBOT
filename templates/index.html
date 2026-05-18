@@ -78,40 +78,58 @@
                 let isInsideRaw = false;
 
                 const fullText = block.replace(headerText, '').trim();
+                const parsedHTML = marked.parse(fullText);
                 
-                // Calculate METAR elapsed time dynamically
-                const obsTimeMatch = fullText.match(/🕒 \*Date\/Time:\* (.*?)\n/);
-                const obsTimeStr = obsTimeMatch ? obsTimeMatch[1] : '';
-                let metarTime = '';
+                // Helper to format elapsed time in hours and minutes
+                function formatElapsed(min) {
+                    if (min === null || min === undefined) return 'N/A';
+                    if (min < 0) return "0m ago";
+                    const hours = Math.floor(min / 60);
+                    const mins = min % 60;
+                    if (hours > 0) {
+                        return `${hours}h ${mins}m ago`;
+                    }
+                    return `${mins}m ago`;
+                }
+
+                // Calculate METAR elapsed time from the raw METAR string (Ground Truth)
+                const metarCodeMatch = parsedHTML.match(/<code>([\s\S]*?)<\/code>/);
+                const rawMetarStr = metarCodeMatch ? metarCodeMatch[1] : '';
+                let metarTime = 'N/A';
                 
-                if (obsTimeStr) {
-                    try {
-                        const obsDate = new Date(obsTimeStr.replace(' UTC', 'Z').replace(' ', 'T'));
+                if (rawMetarStr) {
+                    // Extract DDHHMMZ pattern (e.g., 181100Z)
+                    const match = rawMetarStr.match(/\b\d{2}(\d{2})(\d{2})Z\b/);
+                    if (match) {
+                        const hour = parseInt(match[1]);
+                        const min = parseInt(match[2]);
+                        
                         const now = new Date();
-                        const elapsedMin = Math.floor((now - obsDate) / 60000);
-                        metarTime = elapsedMin >= 0 ? `${elapsedMin}m ago` : "0m ago";
-                    } catch (e) {
-                        metarTime = 'N/A';
+                        const nowUtcHour = now.getUTCHours();
+                        const nowUtcMin = now.getUTCMinutes();
+                        
+                        let diff = (nowUtcHour * 60 + nowUtcMin) - (hour * 60 + min);
+                        if (diff < 0) diff += 24 * 60; // Handle day wrap
+                        
+                        metarTime = formatElapsed(diff);
                     }
                 }
 
-                // Calculate TAF elapsed time dynamically
+                // Calculate TAF elapsed time from the issued time
                 const tafTimeMatch = fullText.match(/📅 \*\*TAF\*\* \(Issued: (.*?)\)/);
                 const tafTimeStr = tafTimeMatch ? tafTimeMatch[1] : '';
-                let tafTime = '';
+                let tafTime = 'N/A';
                 
                 if (tafTimeStr) {
                     try {
                         const tafDate = new Date(tafTimeStr.replace(' UTC', 'Z').replace(' ', 'T'));
                         const now = new Date();
                         const elapsedMin = Math.floor((now - tafDate) / 60000);
-                        tafTime = elapsedMin >= 0 ? `${elapsedMin}m ago` : "0m ago";
+                        tafTime = formatElapsed(elapsedMin);
                     } catch (e) {
                         tafTime = 'N/A';
                     }
                 }
-                
-                const parsedHTML = marked.parse(fullText);
                 
                 function highlightThreats(metar) {
                     const criticalCodes = [
