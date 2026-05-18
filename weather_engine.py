@@ -150,10 +150,10 @@ def get_instant_weather(stations: str) -> str:
         def fetch_url(name, url):
             try:
                 if 'aviationweather' in url:
-                    return name, safe_get(url)
+                    return name, safe_get(url, timeout=6, retries=1)
                 else:
                     # D-ATIS requests
-                    resp = requests.get(url, timeout=3)
+                    resp = requests.get(url, timeout=5)
                     if resp.status_code == 200:
                         return name, resp.json()
                     return name, None
@@ -285,7 +285,7 @@ def get_instant_weather(stations: str) -> str:
                     # NOAA Fallback
                     raw_metar = None
                     try:
-                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=3)
+                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=5)
                         if noaa_m.status_code == 200:
                             lines = noaa_m.text.strip().split('\n')
                             if len(lines) >= 2:
@@ -338,7 +338,7 @@ def get_instant_weather(stations: str) -> str:
                 raw_taf = None
                 issue_time_formatted = "N/A"
                 try:
-                    noaa_t = requests.get(f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT", timeout=2)
+                    noaa_t = requests.get(f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT", timeout=5)
                     if noaa_t.status_code == 200:
                         lines = noaa_t.text.strip().split('\n')
                         if len(lines) >= 2:
