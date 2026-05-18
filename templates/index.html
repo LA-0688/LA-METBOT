@@ -130,29 +130,28 @@
                         tafTime = 'N/A';
                     }
                 }
-                
-                function highlightThreats(metar) {
+                            function highlightThreats(metar) {
                     const criticalCodes = [
                         'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ'
                     ];
+                    
+                    const parts = metar.trim().split(/\s+/);
+                    if (parts.length <= 1) return metar;
+                    
+                    const stationCode = parts[0];
+                    const restOfMetar = parts.slice(1).join(' ');
+                    
                     // 1. Highlight Weather Phenomenon (TS, FG, etc.)
-                    // Updated to ensure it doesn't gobble up station IDs like VABB (matching VA + BB)
-                    // We only allow known weather suffixes or standalone codes
                     const phenomRegex = new RegExp(`\\b([+-]?(?:${criticalCodes.join('|')})(?:RA|SN|DZ|FG|BR|HZ|FU|DU|GR|GS|PL|SG|IC|UP|VA|PO|SQ|FC|SS|DS)?)\\b`, 'g');
-                    let highlighted = metar.replace(phenomRegex, (match) => {
-                        // Avoid matching common 4-letter ICAO station prefixes if they don't look like weather
-                        if (match.length === 4 && /^(V|K|E|P|O|R|S|U|Z)/.test(match) && !/TS|RA|SN|FG|BR/.test(match)) {
-                           return match;
-                        }
+                    let highlighted = restOfMetar.replace(phenomRegex, (match) => {
                         return `<span class="metar-threat">${match}</span>`;
                     });
                     
                     // 2. Highlight Low Visibility (ICAO 4-digit below 1000m)
                     const visRegex = /\b(0\d{3})(?![Z])\b/g;
                     highlighted = highlighted.replace(visRegex, '<span class="metar-threat">$1</span>');
-
+ 
                     // 3. Highlight High/Gusty Winds (e.g., G20KT or speeds 10KT+)
-                    // Matches wind blocks like 25010G15KT or 25012KT
                     const windRegex = /\b(\d{3}(?:[1-9]\d)G?\d{0,2}KT)\b/g;
                     highlighted = highlighted.replace(windRegex, '<span class="metar-threat">$1</span>');
                     
@@ -164,7 +163,7 @@
                     const gustRegex = /\bG\d{2,3}KT\b/g;
                     highlighted = highlighted.replace(gustRegex, '<span class="metar-threat">$1</span>');
                     
-                    return highlighted;
+                    return stationCode + ' ' + highlighted;
                 }
 
                 card.innerHTML = `
