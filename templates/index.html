@@ -133,7 +133,7 @@
                 
                 function highlightThreats(metar) {
                     const criticalCodes = [
-                        'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU'
+                        'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ'
                     ];
                     // 1. Highlight Weather Phenomenon (TS, FG, etc.)
                     // Updated to ensure it doesn't gobble up station IDs like VABB (matching VA + BB)
@@ -155,6 +155,10 @@
                     // Matches wind blocks like 25010G15KT or 25012KT
                     const windRegex = /\b(\d{3}(?:[1-9]\d)G?\d{0,2}KT)\b/g;
                     highlighted = highlighted.replace(windRegex, '<span class="metar-threat">$1</span>');
+                    
+                    // Always highlight any wind block with a Gust (G)
+                    const gustyWindRegex = /\b(\d{5}G\d{2,3}KT)\b/g;
+                    highlighted = highlighted.replace(gustyWindRegex, '<span class="metar-threat">$1</span>');
                     
                     // Also catch standalone gusts if they occur
                     const gustRegex = /\bG\d{2,3}KT\b/g;
