@@ -161,7 +161,7 @@ def get_instant_weather(stations: str) -> str:
                 if lat is not None and lon is not None:
                     lat_dir = 'N' if lat >= 0 else 'S'
                     lon_dir = 'E' if lon >= 0 else 'W'
-                    coords = f"{abs(lat):.2f}°{lat_dir} {abs(lon):.2f}°{lon_dir}"
+                    coords = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
                     sun = get_sun_times(lat, lon)
                     header_info = f" | **{coords}** | **🌅 {sun['sunrise']} 🌇 {sun['sunset']}**"
 
