@@ -1,6 +1,7 @@
 import requests, time
 from datetime import datetime, timezone
 from typing import Dict, Any
+import concurrent.futures
 
 # ---------- Helper: robust GET with retries ----------
 def safe_get(url: str, *, timeout: int = 12, retries: int = 2) -> Any:
@@ -129,19 +130,38 @@ def get_instant_weather(stations: str) -> str:
     result_text = ""
     
     try:
-        # 1. Fetch Data with safe_get
-        metar_url = f"https://aviationweather.gov/api/data/metar?ids={clean_stations}&format=json"
-        taf_url = f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
+        # 1. Fetch Data in Parallel (METAR, TAF, and D-ATIS)
+        urls = {
+            'metar': f"https://aviationweather.gov/api/data/metar?ids={clean_stations}&format=json",
+            'taf': f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
+        }
         
-        try:
-            metar_response = safe_get(metar_url) or []
-        except Exception:
-            metar_response = []
+        # Add D-ATIS URLs for each station
+        for s in stations_list:
+            urls[f'atis_{s}'] = f"https://datis.clowd.io/api/{s}"
             
-        try:
-            taf_response = safe_get(taf_url) or []
-        except Exception:
-            taf_response = []
+        def fetch_url(name, url):
+            try:
+                if 'aviationweather' in url:
+                    return name, safe_get(url)
+                else:
+                    # D-ATIS requests
+                    resp = requests.get(url, timeout=3)
+                    if resp.status_code == 200:
+                        return name, resp.json()
+                    return name, None
+            except Exception:
+                return name, None
+
+        results = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_name = {executor.submit(fetch_url, name, url): name for name, url in urls.items()}
+            for future in concurrent.futures.as_completed(future_to_name):
+                name, data = future.result()
+                results[name] = data
+
+        metar_response = results.get('metar') or []
+        taf_response = results.get('taf') or []
         
         metars_by_station = {}
         if isinstance(metar_response, list):
@@ -317,11 +337,9 @@ def get_instant_weather(stations: str) -> str:
                     result_text += f"📅 **TAF**\n_No TAF forecast available._\n\n"
                 
             # --- ATIS ---
-            try:
-                atis_url = f"https://datis.clowd.io/api/{station}"
-                atis_resp = requests.get(atis_url, timeout=3)
-                if atis_resp.status_code == 200:
-                    atis_data = atis_resp.json()
+            atis_data = results.get(f'atis_{station}')
+            if atis_data:
+                try:
                     if isinstance(atis_data, list) and atis_data:
                         for datis in atis_data:
                             atis_type = datis.get('type', 'combined').title()
@@ -330,10 +348,10 @@ def get_instant_weather(stations: str) -> str:
                     elif isinstance(atis_data, dict) and 'error' not in atis_data:
                         atis_text = atis_data.get('datis', 'N/A')
                         result_text += f"📻 *D-ATIS*\n_{atis_text}_\n\n"
-                else:
-                    result_text += f"📻 *D-ATIS*\n_Not available online._\n\n"
-            except Exception:
-                result_text += f"📻 *D-ATIS*\n_Could not connect to ATIS server._\n\n"
+                except Exception:
+                    pass
+            else:
+                result_text += f"📻 *D-ATIS*\n_Not available or could not connect._\n\n"
                 
         return result_text
         
