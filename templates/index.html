@@ -79,6 +79,11 @@
                 // Simple parser to separate Raw vs Decoded
                 // We'll look for blocks of code (METAR) or italicized lines (TAF)
                 const fullText = block.replace(headerText, '').trim();
+                
+                // Extract METAR elapsed time (e.g., "45m ago")
+                const metarTimeMatch = fullText.match(/✈️ \*METAR\* \((.*?)\)/);
+                const metarTime = metarTimeMatch ? metarTimeMatch[1] : '';
+                
                 const parsedHTML = marked.parse(fullText);
                 
                 function highlightThreats(metar) {
@@ -134,6 +139,7 @@
                     <div class="card-content">
                         <div class="raw-view">
                             <div class="metar-block">
+                                <div class="metar-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">METAR ${metarTime ? `(${metarTime})` : ''}</div>
                                 ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br>')}
                             </div>
                             <div class="taf-block" style="margin-top: 0.5rem;">
