@@ -294,6 +294,7 @@ h1 {
     border: 1px solid var(--glass-border);
     border-radius: 12px;
     padding: 1.5rem;
+    -webkit-backdrop-filter: blur(40px);
     backdrop-filter: blur(40px);
     display: flex;
     gap: 1rem;
@@ -360,6 +361,7 @@ button:hover {
     border: 1px solid var(--glass-border);
     border-radius: 16px;
     padding: 2rem;
+    -webkit-backdrop-filter: blur(40px);
     backdrop-filter: blur(40px);
     box-shadow: 0 30px 60px rgba(0,0,0,0.3);
     transition: transform 0.3s ease, border-color 0.3s ease;
