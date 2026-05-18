@@ -17,11 +17,11 @@ body {
     background: var(--bg-deep);
     color: var(--text-primary);
     font-family: 'Outfit', sans-serif;
-    height: 100vh;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    overflow: hidden; /* Prevent body scroll */
+    overflow-x: hidden;
     position: relative;
 }
 
@@ -175,10 +175,7 @@ body::after {
 .container {
     width: 100%;
     max-width: 900px;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    padding: 2rem;
+    padding: 6rem 2rem;
     z-index: 20;
 }
 
@@ -345,28 +342,9 @@ button:hover {
 .cards-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    gap: 4rem;
-    margin-top: 2rem;
+    gap: 4rem; /* More space between cards */
+    margin-top: 4rem;
     width: 100%;
-    overflow-y: auto; /* Make it scrollable */
-    flex: 1; /* Take remaining height */
-    min-height: 0; /* Critical for flex scrolling */
-    padding-right: 0.5rem; /* Space for scrollbar */
-    padding-bottom: 2rem;
-}
-
-/* Custom HUD Scrollbar for Cards Area */
-.cards-grid::-webkit-scrollbar {
-    width: 6px;
-}
-.cards-grid::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 3px;
-}
-.cards-grid::-webkit-scrollbar-thumb {
-    background: var(--accent-cyan);
-    border-radius: 3px;
-    box-shadow: 0 0 10px var(--accent-cyan);
 }
 
 .weather-card {
