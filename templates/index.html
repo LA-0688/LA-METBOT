@@ -205,15 +205,26 @@
         }
 
         // UTC Clock & Dynamic Title Logic
+        let detectedCity = null;
+        let detectedCountry = null;
+
         function updateClockAndIcons() {
             const now = new Date();
             const hours = now.getUTCHours();
+            
+            // 1. Update UTC Clock
             const utc = now.toISOString().split('T')[1].split('.')[0] + ' UTC';
             document.getElementById('utc-clock').textContent = utc;
 
+            // 2. Update Local Time if location is detected
+            if (detectedCity) {
+                const localTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const tag = document.getElementById('location-tag');
+                tag.innerHTML = `<span class="tag-label">CURRENT LOCATION:</span> <span class="tag-data">${detectedCity.toUpperCase()}, ${detectedCountry}</span> <span class="tag-separator">|</span> <span class="tag-label">LOCAL TIME:</span> <span class="tag-data">${localTimeStr}</span>`;
+            }
+
             const iconLeft = document.getElementById('title-icon-left');
             const iconRight = document.getElementById('title-icon-right');
-            const title = document.getElementById('main-title');
 
             // Time of day logic
             if (hours >= 5 && hours < 11) {
@@ -270,16 +281,9 @@
             }
 
             function setupClock(city, country) {
-                function updateLocalTime() {
-                    const localNow = new Date();
-                    const localTimeStr = localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    if (city) {
-                        tag.innerHTML = `<span class="tag-label">CURRENT LOCATION:</span> <span class="tag-data">${city.toUpperCase()}, ${country}</span> <span class="tag-separator">|</span> <span class="tag-label">LOCAL TIME:</span> <span class="tag-data">${localTimeStr}</span>`;
-                    }
-                }
-                // Clear any existing intervals if we had them (not applicable here as it runs once)
-                setInterval(updateLocalTime, 1000);
-                updateLocalTime();
+                detectedCity = city;
+                detectedCountry = country;
+                updateClockAndIcons(); // Update immediately with new location
             }
         }
         detectLocation();
