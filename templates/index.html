@@ -65,7 +65,8 @@
                 const parts = cleanHeader.split('|').map(p => p.trim());
                 
                 const stationId = parts[0];
-                const extraInfo = parts.slice(1).join(' <span class="separator">|</span> ');
+                const airportName = parts[1] || '';
+                const extraInfo = parts.slice(2).join(' <span class="separator">|</span> ');
                 
                 const card = document.createElement('div');
                 card.className = 'weather-card';
@@ -115,7 +116,10 @@
                 card.innerHTML = `
                     <div class="card-header">
                         <div class="header-main">
-                            <span class="station-id">${stationId}</span>
+                            <div class="station-block">
+                                <span class="station-id">${stationId}</span>
+                                <span class="airport-name">${airportName}</span>
+                            </div>
                             <span class="station-meta">${extraInfo}</span>
                         </div>
                         <div class="view-toggle">

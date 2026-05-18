@@ -402,6 +402,19 @@ button:hover {
     text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
 }
 
+.station-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.airport-name {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    font-weight: 400;
+    margin-top: 0.2rem;
+}
+
 .header-main {
     display: flex;
     flex-direction: row;

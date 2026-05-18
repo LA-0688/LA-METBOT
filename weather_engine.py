@@ -151,9 +151,11 @@ def get_instant_weather(stations: str) -> str:
         for station in stations_list:
             lat, lon = None, None
             header_info = ""
+            name = "Unknown Station"
             
             if station in metars_by_station:
                 m = metars_by_station[station]
+                name = m.get('name', 'Unknown Station')
                 lat = m.get('lat')
                 lon = m.get('lon')
                 if lat is not None and lon is not None:
@@ -163,22 +165,23 @@ def get_instant_weather(stations: str) -> str:
                     sun = get_sun_times(lat, lon)
                     header_info = f" | **{coords}** | **🌅 {sun['sunrise']} 🌇 {sun['sunset']}**"
 
-            result_text += f"### 📍 **{station}**{header_info}\n\n"
+            result_text += f"### 📍 **{station}** | {name}{header_info}\n\n"
             
             # --- METAR ---
             if station in metars_by_station:
                 m = metars_by_station[station]
                 raw_metar = m.get('rawOb', 'N/A')
-                name = m.get('name', 'Unknown Station')
                 obs_time_raw = m.get('obsTime', 'N/A')
                 obs_time = str(obs_time_raw).replace('T', ' ').replace('Z', ' UTC')
                 
                 # Check if stale (older than 1 hour)
                 is_stale = False
+                elapsed_min = 0
                 if obs_time_raw != 'N/A':
                     try:
                         obs_dt = datetime.fromisoformat(obs_time_raw.replace('Z', '+00:00'))
                         now_dt = datetime.now(timezone.utc)
+                        elapsed_min = int((now_dt - obs_dt).total_seconds() / 60)
                         if (now_dt - obs_dt).total_seconds() > 3600:
                             is_stale = True
                     except Exception:
@@ -208,7 +211,7 @@ def get_instant_weather(stations: str) -> str:
                 cloud_str = decode_clouds(clouds)
                 wx_str = decode_wx(wx)
                 
-                result_text += f"✈️ *METAR*\n`{raw_metar}`\n\n"
+                result_text += f"✈️ *METAR* ({elapsed_min}m ago)\n`{raw_metar}`\n\n"
                 if is_stale:
                     result_text += "⚠️ *Warning:* Decoded data below may be stale (source delayed). Showing latest raw METAR from NOAA if available.\n\n"
                 if name != 'Unknown Station':
