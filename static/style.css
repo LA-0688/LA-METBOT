@@ -605,3 +605,13 @@ input:checked + .slider:before { transform: translateX(20px); }
         padding: 1rem;
     }
 }
+
+.metar-threat {
+    text-decoration: none !important;
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    padding: 0 4px;
+    border-radius: 4px;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
