@@ -135,8 +135,11 @@
                         'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ'
                     ];
                     
-                    const parts = metar.trim().split(/\s+/);
-                    if (parts.length <= 1) return metar;
+                    // Remove redundant METAR or TAF prefix at the start
+                    const cleanMetar = metar.trim().replace(/^(METAR|TAF)\s+/, '');
+                    
+                    const parts = cleanMetar.split(/\s+/);
+                    if (parts.length <= 1) return cleanMetar;
                     
                     const stationCode = parts[0];
                     const restOfMetar = parts.slice(1).join(' ');
