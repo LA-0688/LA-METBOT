@@ -17,6 +17,11 @@ def safe_get(url: str, *, timeout: int = 12, retries: int = 2) -> Any:
             time.sleep(backoff)
             backoff *= 2 # 1 -> 2 -> 4 seconds
 
+# ---------- Hardcoded Fallbacks for Missing Stations ----------
+KNOWN_STATIONS = {
+    'VANM': {'name': 'Navi Mumbai International Airport', 'lat': 18.99, 'lon': 73.06}
+}
+
 # ---------- In-memory cache (1-minute TTL) ----------
 weather_cache: Dict[str, tuple[str, float]] = {}
 sun_cache: Dict[str, tuple[Dict[str, str], float]] = {}
@@ -153,17 +158,25 @@ def get_instant_weather(stations: str) -> str:
             header_info = ""
             name = "Unknown Station"
             
+            # Apply hardcoded fallback if available
+            if station in KNOWN_STATIONS:
+                fallback = KNOWN_STATIONS[station]
+                name = fallback.get('name', name)
+                lat = fallback.get('lat')
+                lon = fallback.get('lon')
+            
             if station in metars_by_station:
                 m = metars_by_station[station]
-                name = m.get('name', 'Unknown Station')
-                lat = m.get('lat')
-                lon = m.get('lon')
-                if lat is not None and lon is not None:
-                    lat_dir = 'N' if lat >= 0 else 'S'
-                    lon_dir = 'E' if lon >= 0 else 'W'
-                    coords = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
-                    sun = get_sun_times(lat, lon)
-                    header_info = f" | **{coords}** | **🌅 {sun['sunrise']} 🌇 {sun['sunset']}**"
+                name = m.get('name', name) # Keep fallback name if API returns empty
+                lat = m.get('lat', lat)
+                lon = m.get('lon', lon)
+                
+            if lat is not None and lon is not None:
+                lat_dir = 'N' if lat >= 0 else 'S'
+                lon_dir = 'E' if lon >= 0 else 'W'
+                coords = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
+                sun = get_sun_times(lat, lon)
+                header_info = f" | **{coords}** | **🌅 {sun['sunrise']} 🌇 {sun['sunset']}**"
 
             result_text += f"### 📍 **{station}** | {name}{header_info}\n\n"
             
