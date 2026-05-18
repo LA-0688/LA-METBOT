@@ -211,6 +211,9 @@ def get_instant_weather(stations: str) -> str:
             if station in metars_by_station:
                 m = metars_by_station[station]
                 raw_metar = m.get('rawOb', 'N/A')
+                raw_metar = raw_metar.strip()
+                while raw_metar.upper().startswith('METAR'):
+                    raw_metar = raw_metar[5:].strip()
                 obs_time_raw = m.get('obsTime', 'N/A')
                 obs_time = str(obs_time_raw).replace('T', ' ').replace('Z', ' UTC')
                 
@@ -299,6 +302,9 @@ def get_instant_weather(stations: str) -> str:
             if station in tafs_by_station:
                 t = tafs_by_station[station]
                 raw_taf = t.get('rawTAF', 'N/A')
+                raw_taf = raw_taf.strip()
+                while raw_taf.upper().startswith('TAF'):
+                    raw_taf = raw_taf[3:].strip()
                 issue_time = t.get('issueTime', 'N/A')
                 issue_time_formatted = str(issue_time).replace('T', ' ').replace('Z', ' UTC')
                 result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n_{raw_taf}_\n\n"
@@ -331,6 +337,9 @@ def get_instant_weather(stations: str) -> str:
                         lines = noaa_t.text.strip().split('\n')
                         if len(lines) >= 2:
                             raw_taf = " ".join(lines[1:])
+                            raw_taf = raw_taf.strip()
+                            while raw_taf.upper().startswith('TAF'):
+                                raw_taf = raw_taf[3:].strip()
                             # Extract timestamp from NOAA (e.g., "2026/05/18 11:00")
                             noaa_time = lines[0].strip()
                             issue_time_formatted = noaa_time.replace('/', '-') + ":00 UTC"

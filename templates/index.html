@@ -135,8 +135,8 @@
                         'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ'
                     ];
                     
-                    // Remove redundant METAR or TAF prefix at the start (handling optional <code> tags)
-                    const cleanMetar = metar.trim().replace(/^(<code>)?(METAR|TAF)\s+/, '$1');
+                    // Remove redundant METAR or TAF prefix at the start (handling any leading tags or spaces)
+                    const cleanMetar = metar.trim().replace(/^((?:<[^>]+>|\s)*)(METAR|TAF)\s+/, '$1');
                     
                     const parts = cleanMetar.split(/\s+/);
                     if (parts.length <= 1) return cleanMetar;
@@ -198,11 +198,14 @@
                             </div>
                             <div class="taf-block" style="margin-top: 0.5rem;">
                                 <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">TAF ${tafTime ? `(${tafTime})` : ''}</div>
-                                ${(parsedHTML.match(/<em>.*?TAF.*?<\/em>/g) || []).map(taf => highlightThreats(taf)).join('<br>')}
+                                ${(() => {
+                                    const emBlocks = parsedHTML.match(/<em>[\s\S]*?<\/em>/g) || [];
+                                    return emBlocks[0] ? highlightThreats(emBlocks[0]) : '_No TAF data available._';
+                                })()}
                             </div>
                         </div>
                         <div class="decoded-view">
-                            ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '').replace(/<em>.*?TAF.*?<\/em>/g, '')}
+                            ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '').replace(/<em>[\s\S]*?<\/em>/, '')}
                         </div>
                     </div>
                 `;
