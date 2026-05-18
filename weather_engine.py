@@ -129,6 +129,13 @@ def get_instant_weather(stations: str) -> str:
     clean_stations = ",".join(stations_list)
     result_text = ""
     
+    # Cache Lookup
+    current_time = time.time()
+    if stations in weather_cache:
+        cached_data, timestamp = weather_cache[stations]
+        if current_time - timestamp < 60: # 1 minute TTL
+            return cached_data
+    
     try:
         # 1. Fetch Data in Parallel (METAR, TAF, and D-ATIS)
         urls = {
@@ -353,6 +360,7 @@ def get_instant_weather(stations: str) -> str:
             else:
                 result_text += f"📻 *D-ATIS*\n_Not available or could not connect._\n\n"
                 
+        weather_cache[stations] = (result_text, current_time)
         return result_text
         
     except Exception as e:
