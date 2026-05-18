@@ -307,7 +307,7 @@ def get_instant_weather(stations: str) -> str:
                     raw_taf = raw_taf[3:].strip()
                 issue_time = t.get('issueTime', 'N/A')
                 issue_time_formatted = str(issue_time).replace('T', ' ').replace('Z', ' UTC')
-                result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n_{raw_taf}_\n\n"
+                result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
                 result_text += "*Decoded:*\n"
                 
                 for fcst in t.get('fcsts', []):
@@ -346,9 +346,7 @@ def get_instant_weather(stations: str) -> str:
                 except Exception:
                     pass
                 
-                if raw_taf:
-                    clean_taf = raw_taf.replace('\n', ' ')
-                    result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n_{clean_taf}_\n\n"
+                    result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
                 else:
                     result_text += f"📅 **TAF**\n_No TAF forecast available._\n\n"
                 

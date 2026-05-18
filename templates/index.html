@@ -194,18 +194,21 @@
                         <div class="raw-view">
                             <div class="metar-block">
                                 <div class="metar-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">METAR ${metarTime ? `(${metarTime})` : ''}</div>
-                                ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br>')}
+                                ${(() => {
+                                    const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
+                                    return codeBlocks[0] ? highlightThreats(codeBlocks[0]) : '_No METAR data available._';
+                                })()}
                             </div>
                             <div class="taf-block" style="margin-top: 0.5rem;">
                                 <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">TAF ${tafTime ? `(${tafTime})` : ''}</div>
                                 ${(() => {
-                                    const emBlocks = parsedHTML.match(/<em>[\s\S]*?<\/em>/g) || [];
-                                    return emBlocks[0] ? highlightThreats(emBlocks[0]) : '_No TAF data available._';
+                                    const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
+                                    return codeBlocks[1] ? highlightThreats(codeBlocks[1]) : '_No TAF data available._';
                                 })()}
                             </div>
                         </div>
                         <div class="decoded-view">
-                            ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '').replace(/<em>[\s\S]*?<\/em>/, '')}
+                            ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '')}
                         </div>
                     </div>
                 `;
