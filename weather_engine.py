@@ -259,7 +259,9 @@ def get_instant_weather(stations: str) -> str:
             if station in tafs_by_station:
                 t = tafs_by_station[station]
                 raw_taf = t.get('rawTAF', 'N/A')
-                result_text += f"📅 **TAF**\n_{raw_taf}_\n\n"
+                issue_time = t.get('issueTime', 'N/A')
+                issue_time_formatted = str(issue_time).replace('T', ' ').replace('Z', ' UTC')
+                result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n_{raw_taf}_\n\n"
                 result_text += "*Decoded:*\n"
                 
                 for fcst in t.get('fcsts', []):

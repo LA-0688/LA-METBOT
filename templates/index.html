@@ -79,26 +79,35 @@
 
                 const fullText = block.replace(headerText, '').trim();
                 
-                // Calculate METAR elapsed time dynamically in the frontend
+                // Calculate METAR elapsed time dynamically
                 const obsTimeMatch = fullText.match(/🕒 \*Date\/Time:\* (.*?)\n/);
                 const obsTimeStr = obsTimeMatch ? obsTimeMatch[1] : '';
                 let metarTime = '';
                 
                 if (obsTimeStr) {
                     try {
-                        // Convert "2026-05-18 11:00:00 UTC" to ISO format for Date parsing
                         const obsDate = new Date(obsTimeStr.replace(' UTC', 'Z').replace(' ', 'T'));
                         const now = new Date();
-                        // Difference in minutes
                         const elapsedMin = Math.floor((now - obsDate) / 60000);
-                        
-                        if (elapsedMin >= 0) {
-                            metarTime = `${elapsedMin}m ago`;
-                        } else {
-                            metarTime = "0m ago"; // Handle slight clock skews
-                        }
+                        metarTime = elapsedMin >= 0 ? `${elapsedMin}m ago` : "0m ago";
                     } catch (e) {
                         metarTime = 'N/A';
+                    }
+                }
+
+                // Calculate TAF elapsed time dynamically
+                const tafTimeMatch = fullText.match(/📅 \*\*TAF\*\* \(Issued: (.*?)\)/);
+                const tafTimeStr = tafTimeMatch ? tafTimeMatch[1] : '';
+                let tafTime = '';
+                
+                if (tafTimeStr) {
+                    try {
+                        const tafDate = new Date(tafTimeStr.replace(' UTC', 'Z').replace(' ', 'T'));
+                        const now = new Date();
+                        const elapsedMin = Math.floor((now - tafDate) / 60000);
+                        tafTime = elapsedMin >= 0 ? `${elapsedMin}m ago` : "0m ago";
+                    } catch (e) {
+                        tafTime = 'N/A';
                     }
                 }
                 
@@ -167,6 +176,7 @@
                                 ${(parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || []).map(code => highlightThreats(code)).join('<br>')}
                             </div>
                             <div class="taf-block" style="margin-top: 0.5rem;">
+                                <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">TAF ${tafTime ? `(${tafTime})` : ''}</div>
                                 ${(parsedHTML.match(/<em>.*?TAF.*?<\/em>/g) || []).map(taf => highlightThreats(taf)).join('<br>')}
                             </div>
                         </div>
