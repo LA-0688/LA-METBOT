@@ -4,7 +4,7 @@ from typing import Dict, Any
 import concurrent.futures
 
 # ---------- Helper: robust GET with retries ----------
-def safe_get(url: str, *, timeout: int = 12, retries: int = 2) -> Any:
+def safe_get(url: str, *, timeout: int = 3, retries: int = 0) -> Any:
     """Fetch JSON with exponential back-off to prevent random timeout errors."""
     backoff = 1
     for attempt in range(retries + 1):
@@ -223,7 +223,7 @@ def get_instant_weather(stations: str) -> str:
                 # Fallback to NOAA if stale
                 if is_stale:
                     try:
-                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=3)
+                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=2)
                         if noaa_m.status_code == 200:
                             lines = noaa_m.text.strip().split('\n')
                             if len(lines) >= 2:
@@ -319,7 +319,7 @@ def get_instant_weather(stations: str) -> str:
                 raw_taf = None
                 issue_time_formatted = "N/A"
                 try:
-                    noaa_t = requests.get(f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT", timeout=3)
+                    noaa_t = requests.get(f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT", timeout=2)
                     if noaa_t.status_code == 200:
                         lines = noaa_t.text.strip().split('\n')
                         if len(lines) >= 2:
