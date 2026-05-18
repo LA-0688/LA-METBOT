@@ -1,5 +1,5 @@
 import requests, time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 # ---------- Helper: robust GET with retries ----------
@@ -17,10 +17,10 @@ def safe_get(url: str, *, timeout: int = 12, retries: int = 2) -> Any:
             time.sleep(backoff)
             backoff *= 2 # 1 -> 2 -> 4 seconds
 
-# ---------- In-memory cache (5-minute TTL) ----------
+# ---------- In-memory cache (1-minute TTL) ----------
 weather_cache: Dict[str, tuple[str, float]] = {}
 sun_cache: Dict[str, tuple[Dict[str, str], float]] = {}
-CACHE_TTL = 300 
+CACHE_TTL = 60 
 
 def get_sun_times(lat, lon):
     """Fetch sunrise and sunset times for given coordinates."""
@@ -172,6 +172,28 @@ def get_instant_weather(stations: str) -> str:
                 name = m.get('name', 'Unknown Station')
                 obs_time_raw = m.get('obsTime', 'N/A')
                 obs_time = str(obs_time_raw).replace('T', ' ').replace('Z', ' UTC')
+                
+                # Check if stale (older than 1 hour)
+                is_stale = False
+                if obs_time_raw != 'N/A':
+                    try:
+                        obs_dt = datetime.fromisoformat(obs_time_raw.replace('Z', '+00:00'))
+                        now_dt = datetime.now(timezone.utc)
+                        if (now_dt - obs_dt).total_seconds() > 3600:
+                            is_stale = True
+                    except Exception:
+                        pass
+                
+                # Fallback to NOAA if stale
+                if is_stale:
+                    try:
+                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=3)
+                        if noaa_m.status_code == 200:
+                            lines = noaa_m.text.strip().split('\n')
+                            if len(lines) >= 2:
+                                raw_metar = lines[1]
+                    except Exception:
+                        pass
                 flt_cat = m.get('fltCat', 'N/A')
                 wdir = m.get('wdir', 'VRB' if m.get('wdir') == 0 else m.get('wdir', 'N/A'))
                 wspd = m.get('wspd', 'N/A')
@@ -187,6 +209,8 @@ def get_instant_weather(stations: str) -> str:
                 wx_str = decode_wx(wx)
                 
                 result_text += f"✈️ *METAR*\n`{raw_metar}`\n\n"
+                if is_stale:
+                    result_text += "⚠️ *Warning:* Decoded data below may be stale (source delayed). Showing latest raw METAR from NOAA if available.\n\n"
                 if name != 'Unknown Station':
                     result_text += f"🏢 *Facility:* {name}\n"
                 if obs_time != 'N/A':

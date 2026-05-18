@@ -201,6 +201,9 @@
             const query = input.value.trim();
             if(!query) return;
 
+            // Persist searched stations
+            localStorage.setItem('lastStations', query);
+
             cardsGrid.innerHTML = '';
             loader.style.display = 'block';
             
@@ -251,6 +254,13 @@
 
         btn.addEventListener('click', fetchWeather);
         input.addEventListener('keypress', (e) => { if(e.key === 'Enter') fetchWeather(); });
+
+        // Load saved stations on page load
+        const savedStations = localStorage.getItem('lastStations');
+        if (savedStations) {
+            input.value = savedStations;
+            fetchWeather();
+        }
     </script>
 </body>
 </html>
