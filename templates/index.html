@@ -66,7 +66,8 @@
                 
                 const stationId = parts[0];
                 const airportName = parts[1] || '';
-                const extraInfo = parts.slice(2).join(' <span class="separator">|</span> ');
+                const coords = parts[2] || '';
+                const sunTimes = parts[3] || '';
                 
                 const card = document.createElement('div');
                 card.className = 'weather-card';
@@ -77,11 +78,10 @@
                 let isInsideRaw = false;
 
                 // Simple parser to separate Raw vs Decoded
-                // We'll look for blocks of code (METAR) or italicized lines (TAF)
                 const fullText = block.replace(headerText, '').trim();
                 
-                // Extract METAR elapsed time (e.g., "45m ago")
-                const metarTimeMatch = fullText.match(/✈️ \*METAR\* \((.*?)\)/);
+                // Extract METAR elapsed time (e.g., "45m ago") - More robust regex
+                const metarTimeMatch = fullText.match(/METAR[^\(]*\(([^)]+)\)/);
                 const metarTime = metarTimeMatch ? metarTimeMatch[1] : '';
                 
                 const parsedHTML = marked.parse(fullText);
@@ -119,21 +119,27 @@
                 }
 
                 card.innerHTML = `
-                    <div class="card-header">
-                        <div class="header-main">
-                            <div class="station-block">
-                                <span class="station-id">${stationId}</span>
+                    <div class="card-header" style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%;">
+                        <div class="header-left" style="display: flex; flex-direction: column; align-items: flex-start;">
+                            <span class="station-id" style="font-size: 2.2rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #fff; text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);">${stationId}</span>
+                            <div style="display: flex; gap: 0.5rem; align-items: center; font-size: 0.85rem; color: var(--text-dim); margin-top: 0.2rem;">
                                 <span class="airport-name">${airportName}</span>
+                                <span class="separator">|</span>
+                                <span class="airport-coords">${coords}</span>
                             </div>
-                            <span class="station-meta">${extraInfo}</span>
                         </div>
-                        <div class="view-toggle">
-                            <span class="toggle-label raw-label">Raw</span>
-                            <label class="switch">
-                                <input type="checkbox" onchange="this.closest('.weather-card').classList.toggle('show-decoded')">
-                                <span class="slider"></span>
-                            </label>
-                            <span class="toggle-label decoded-label">Decoded</span>
+                        <div class="header-center" style="justify-self: center; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--accent-cyan);">
+                            ${sunTimes}
+                        </div>
+                        <div class="header-right" style="justify-self: end;">
+                            <div class="view-toggle">
+                                <span class="toggle-label raw-label">Raw</span>
+                                <label class="switch">
+                                    <input type="checkbox" onchange="this.closest('.weather-card').classList.toggle('show-decoded')">
+                                    <span class="slider"></span>
+                                </label>
+                                <span class="toggle-label decoded-label">Decoded</span>
+                            </div>
                         </div>
                     </div>
                     <div class="card-content">
