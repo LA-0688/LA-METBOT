@@ -166,6 +166,10 @@
                     const gustRegex = /\bG\d{2,3}KT\b/g;
                     highlighted = highlighted.replace(gustRegex, '<span class="metar-threat">$1</span>');
                     
+                    // 4. Highlight Low Cloud Base (800 feet and below)
+                    const cloudRegex = /\b((?:FEW|SCT|BKN|OVC|VV)00[0-8](?:CB|TCU)?)\b/g;
+                    highlighted = highlighted.replace(cloudRegex, '<span class="metar-threat">$1</span>');
+                    
                     return stationCode + ' ' + highlighted;
                 }
 
