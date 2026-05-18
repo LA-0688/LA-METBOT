@@ -113,21 +113,7 @@ body::after {
     background-size: 400% 400%;
 }
 
-/* Lightning: Electric Bolts & Bloom */
-.weather-thunder .layer-lightning {
-    opacity: 1;
-    animation: lightning-bolt 4s infinite; /* Much more frequent */
-}
-
-@keyframes lightning-bolt {
-    0%, 80%, 85%, 90%, 95%, 100% { background: transparent; opacity: 0; }
-    82%, 87%, 92% { 
-        background: linear-gradient(110deg, transparent 40%, #fff 45%, #fff 55%, transparent 60%);
-        opacity: 1;
-        box-shadow: 0 0 150px #fff, inset 0 0 300px var(--accent-cyan);
-        filter: brightness(4) contrast(2) skewX(-20deg);
-    }
-}
+/* Lightning animation removed for safety in cockpit */
 
 .weather-thunder .layer-clouds {
     opacity: 0.6;
