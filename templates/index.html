@@ -181,22 +181,50 @@
         // Location & Local Time Detection
         async function detectLocation() {
             const tag = document.getElementById('location-tag');
-            try {
-                const resp = await fetch('https://ipapi.co/json/');
-                const data = await resp.json();
-                
+            
+            // Try HTML5 Geolocation first (more accurate, bypasses VPN)
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    try {
+                        const resp = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
+                        const data = await resp.json();
+                        const city = data.city || data.locality || "Unknown";
+                        const country = data.countryCode || "??";
+                        setupClock(city, country);
+                    } catch (err) {
+                        fallbackToIP();
+                    }
+                }, (err) => {
+                    // Fallback if user denies or it fails
+                    fallbackToIP();
+                }, { timeout: 5000 });
+            } else {
+                fallbackToIP();
+            }
+
+            async function fallbackToIP() {
+                try {
+                    const resp = await fetch('https://ipapi.co/json/');
+                    const data = await resp.json();
+                    setupClock(data.city, data.country_code);
+                } catch (err) {
+                    tag.textContent = 'CURRENT LOCATION: OFFLINE';
+                }
+            }
+
+            function setupClock(city, country) {
                 function updateLocalTime() {
                     const localNow = new Date();
                     const localTimeStr = localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    if (data.city) {
-                        tag.innerHTML = `<span class="tag-label">CURRENT LOCATION:</span> <span class="tag-data">${data.city.toUpperCase()}, ${data.country_code}</span> <span class="tag-separator">|</span> <span class="tag-label">LOCAL TIME:</span> <span class="tag-data">${localTimeStr}</span>`;
+                    if (city) {
+                        tag.innerHTML = `<span class="tag-label">CURRENT LOCATION:</span> <span class="tag-data">${city.toUpperCase()}, ${country}</span> <span class="tag-separator">|</span> <span class="tag-label">LOCAL TIME:</span> <span class="tag-data">${localTimeStr}</span>`;
                     }
                 }
+                // Clear any existing intervals if we had them (not applicable here as it runs once)
                 setInterval(updateLocalTime, 1000);
                 updateLocalTime();
-                
-            } catch (err) {
-                tag.textContent = 'CURRENT LOCATION: OFFLINE';
             }
         }
         detectLocation();
