@@ -132,7 +132,7 @@
                 }
                             function highlightThreats(metar) {
                     const criticalCodes = [
-                        'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ'
+                        'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ', 'TCU', 'CU'
                     ];
                     
                     // Remove redundant METAR or TAF prefix at the start (handling any leading tags or spaces)
@@ -196,14 +196,16 @@
                                 <div class="metar-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">METAR ${metarTime ? `(${metarTime})` : ''}</div>
                                 ${(() => {
                                     const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
-                                    return codeBlocks[0] ? highlightThreats(codeBlocks[0]) : '_No METAR data available._';
+                                    const metarBlock = codeBlocks.find(b => !/\d{4}\/\d{4}/.test(b));
+                                    return metarBlock ? highlightThreats(metarBlock) : '_No METAR data available._';
                                 })()}
                             </div>
                             <div class="taf-block" style="margin-top: 0.5rem;">
                                 <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">TAF ${tafTime ? `(${tafTime})` : ''}</div>
                                 ${(() => {
                                     const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
-                                    return codeBlocks[1] ? highlightThreats(codeBlocks[1]) : '_No TAF data available._';
+                                    const tafBlock = codeBlocks.find(b => /\d{4}\/\d{4}/.test(b));
+                                    return tafBlock ? highlightThreats(tafBlock) : '_No TAF data available._';
                                 })()}
                             </div>
                         </div>
