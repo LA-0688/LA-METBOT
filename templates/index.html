@@ -55,7 +55,6 @@
 
         function createCard(data) {
             const blocks = data.split('### 📍');
-            cardsGrid.innerHTML = '';
             
             blocks.forEach((block, index) => {
                 if(!block.trim()) return;
@@ -300,51 +299,72 @@
             localStorage.setItem('lastStations', query);
 
             cardsGrid.innerHTML = '';
-            loader.style.display = 'block';
             
             const progressContainer = document.getElementById('progress-container');
             const progressBar = document.getElementById('progress-bar');
             progressContainer.style.opacity = '1';
-            progressBar.style.width = '30%';
+            progressBar.style.width = '10%';
 
-            try {
-                const response = await fetch(`/api/weather?stations=${encodeURIComponent(query)}`);
-                progressBar.style.width = '70%';
-                const data = await response.json();
-                
-                progressBar.style.width = '100%';
-                setTimeout(() => { 
-                    progressContainer.style.opacity = '0';
-                    progressBar.style.width = '0%';
-                }, 500);
+            const stations = query.replace(",", " ").split(/\s+/).filter(s => s.trim());
+            let completed = 0;
 
-                loader.style.display = 'none';
-                createCard(data.text);
+            stations.forEach(async (station) => {
+                const stationUpper = station.toUpperCase();
                 
-                // Dynamic Weather Animations
-                const textRaw = data.text.toLowerCase();
-                document.body.className = '';
-                
-                // Broaden detection for all types of rain and storm indicators
-                const isThunder = textRaw.includes('thunderstorm') || textRaw.includes('thunder') || textRaw.includes(' ts') || textRaw.includes('tsra');
-                const isRain = textRaw.includes('rain') || textRaw.includes('showers') || textRaw.includes('shra') || textRaw.includes('ra') || textRaw.includes('drizzle') || textRaw.includes('dz');
-                const isWindy = textRaw.includes('gust') || textRaw.includes('windy') || textRaw.includes('g') && textRaw.match(/g\d{2}/);
+                // Create a skeleton loader card
+                const placeholder = document.createElement('div');
+                placeholder.className = 'weather-card';
+                placeholder.id = `loading-${stationUpper}`;
+                placeholder.innerHTML = `
+                    <div class="card-header">
+                        <div class="header-left">
+                            <span class="station-id">${stationUpper}</span>
+                            <span class="airport-name">Connecting...</span>
+                        </div>
+                    </div>
+                    <div style="color: var(--text-dim); font-size: 0.9rem;">Fetching live data from uplink...</div>
+                `;
+                cardsGrid.appendChild(placeholder);
 
-                if (isThunder) {
-                    document.body.className = 'weather-thunder';
-                } else if (isRain) {
-                    document.body.className = 'weather-rain';
-                } else if (isWindy) {
-                    document.body.className = 'weather-windy';
-                } else {
-                    document.body.className = 'weather-clear';
+                try {
+                    const response = await fetch(`/api/weather?stations=${stationUpper}`);
+                    const data = await response.json();
+                    
+                    // Remove placeholder
+                    placeholder.remove();
+                    
+                    // Create real card
+                    createCard(data.text);
+                    
+                    // Dynamic Weather Animations (based on the received station's weather)
+                    const textRaw = data.text.toLowerCase();
+                    const isThunder = textRaw.includes('thunderstorm') || textRaw.includes('thunder') || textRaw.includes(' ts') || textRaw.includes('tsra');
+                    const isRain = textRaw.includes('rain') || textRaw.includes('showers') || textRaw.includes('shra') || textRaw.includes('ra') || textRaw.includes('drizzle') || textRaw.includes('dz');
+                    
+                    if (isThunder) document.body.className = 'weather-thunder';
+                    else if (isRain) document.body.className = 'weather-rain';
+                    
+                } catch (err) {
+                    placeholder.innerHTML = `
+                        <div class="card-header">
+                            <div class="header-left">
+                                <span class="station-id">${stationUpper}</span>
+                                <span class="airport-name">Timeout</span>
+                            </div>
+                        </div>
+                        <p class="error" style="color: var(--accent-red); font-size: 0.85rem;">Datalink Timeout.</p>
+                    `;
+                } finally {
+                    completed++;
+                    progressBar.style.width = `${(completed / stations.length) * 100}%`;
+                    if (completed === stations.length) {
+                        setTimeout(() => { 
+                            progressContainer.style.opacity = '0';
+                            progressBar.style.width = '0%';
+                        }, 500);
+                    }
                 }
-                
-            } catch (err) {
-                loader.style.display = 'none';
-                progressContainer.style.opacity = '0';
-                cardsGrid.innerHTML = `<p class="error">System Error: Datalink Timeout.</p>`;
-            }
+            });
         }
 
         btn.addEventListener('click', fetchWeather);
