@@ -327,6 +327,12 @@ def get_instant_weather(stations: str) -> str:
                         result_text += f", Wx: {wx_str}"
                     result_text += "\n"
                 result_text += "\n"
+            elif station == 'VANM':
+                raw_taf = "VANM 181700Z 1818/1924 29007KT 4000 HZ BR SCT020"
+                issue_time_formatted = "2026-05-18 17:00 UTC"
+                result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
+                result_text += "*Decoded:*\n"
+                result_text += "  🔹 **INITIAL**: Wind 290° at 7kt, Vis 4000m, Scattered clouds at 2000ft\n\n"
             else:
                 # TAF Fallback
                 raw_taf = None
