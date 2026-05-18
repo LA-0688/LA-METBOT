@@ -135,8 +135,8 @@
                         'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ'
                     ];
                     
-                    // Remove redundant METAR or TAF prefix at the start
-                    const cleanMetar = metar.trim().replace(/^(METAR|TAF)\s+/, '');
+                    // Remove redundant METAR or TAF prefix at the start (handling optional <code> tags)
+                    const cleanMetar = metar.trim().replace(/^(<code>)?(METAR|TAF)\s+/, '$1');
                     
                     const parts = cleanMetar.split(/\s+/);
                     if (parts.length <= 1) return cleanMetar;
