@@ -77,12 +77,30 @@
                 const decodedContent = [];
                 let isInsideRaw = false;
 
-                // Simple parser to separate Raw vs Decoded
                 const fullText = block.replace(headerText, '').trim();
                 
-                // Extract METAR elapsed time (e.g., "45m ago") - More robust regex
-                const metarTimeMatch = fullText.match(/METAR[^\(]*\(([^)]+)\)/);
-                const metarTime = metarTimeMatch ? metarTimeMatch[1] : '';
+                // Calculate METAR elapsed time dynamically in the frontend
+                const obsTimeMatch = fullText.match(/🕒 \*Date\/Time:\* (.*?)\n/);
+                const obsTimeStr = obsTimeMatch ? obsTimeMatch[1] : '';
+                let metarTime = '';
+                
+                if (obsTimeStr) {
+                    try {
+                        // Convert "2026-05-18 11:00:00 UTC" to ISO format for Date parsing
+                        const obsDate = new Date(obsTimeStr.replace(' UTC', 'Z').replace(' ', 'T'));
+                        const now = new Date();
+                        // Difference in minutes
+                        const elapsedMin = Math.floor((now - obsDate) / 60000);
+                        
+                        if (elapsedMin >= 0) {
+                            metarTime = `${elapsedMin}m ago`;
+                        } else {
+                            metarTime = "0m ago"; // Handle slight clock skews
+                        }
+                    } catch (e) {
+                        metarTime = 'N/A';
+                    }
+                }
                 
                 const parsedHTML = marked.parse(fullText);
                 
