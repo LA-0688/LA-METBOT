@@ -375,12 +375,39 @@ button:hover {
 }
 
 .card-header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
+    width: 100%;
     margin-bottom: 1.5rem;
     padding-bottom: 1rem;
     position: relative;
+}
+
+.header-left {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.name-coords-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-top: 0.2rem;
+}
+
+.header-center {
+    justify-self: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--accent-cyan);
+}
+
+.header-right {
+    justify-self: end;
 }
 
 .card-header::after {
@@ -539,4 +566,50 @@ input:checked + .slider:before { transform: translateX(20px); }
 @keyframes threat-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
+}
+
+/* --- RESPONSIVE DESIGN --- */
+
+@media (max-width: 768px) {
+    h1 {
+        font-size: 3.5rem;
+    }
+    .brand-icon {
+        font-size: 2rem;
+    }
+    .container {
+        padding: 3rem 1rem;
+    }
+    .cards-grid {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+    .card-header {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    .header-center {
+        justify-self: start;
+    }
+    .header-right {
+        justify-self: start;
+    }
+}
+
+@media (max-width: 480px) {
+    h1 {
+        font-size: 2.5rem;
+    }
+    .utc-clock, .location-tag {
+        font-size: 0.8rem;
+    }
+    .tag-data {
+        font-size: 0.75rem;
+    }
+    .search-box {
+        flex-direction: column;
+    }
+    button {
+        padding: 1rem;
+    }
 }
