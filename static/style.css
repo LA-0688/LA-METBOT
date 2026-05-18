@@ -609,4 +609,5 @@ input:checked + .slider:before { transform: translateX(20px); }
 .metar-threat {
     text-decoration: none !important;
     font-weight: 800;
+    color: #eab308 !important;
 }

@@ -170,6 +170,10 @@
                     const cloudRegex = /\b((?:FEW|SCT|BKN|OVC|VV)00[0-8](?:CB|TCU)?)\b/g;
                     highlighted = highlighted.replace(cloudRegex, '<span class="metar-threat">$1</span>');
                     
+                    // 5. Highlight any cloud group containing CB or TCU regardless of height
+                    const convectiveCloudRegex = /\b([A-Z]{3}\d{3}(?:CB|TCU))\b/g;
+                    highlighted = highlighted.replace(convectiveCloudRegex, '<span class="metar-threat">$1</span>');
+                    
                     return stationCode + ' ' + highlighted;
                 }
 
