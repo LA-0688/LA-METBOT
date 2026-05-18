@@ -284,18 +284,22 @@ def get_instant_weather(stations: str) -> str:
             else:
                 # TAF Fallback
                 raw_taf = None
+                issue_time_formatted = "N/A"
                 try:
                     noaa_t = requests.get(f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT", timeout=3)
                     if noaa_t.status_code == 200:
                         lines = noaa_t.text.strip().split('\n')
                         if len(lines) >= 2:
                             raw_taf = " ".join(lines[1:])
+                            # Extract timestamp from NOAA (e.g., "2026/05/18 11:00")
+                            noaa_time = lines[0].strip()
+                            issue_time_formatted = noaa_time.replace('/', '-') + ":00 UTC"
                 except Exception:
                     pass
                 
                 if raw_taf:
                     clean_taf = raw_taf.replace('\n', ' ')
-                    result_text += f"📅 **TAF**\n_{clean_taf}_\n\n"
+                    result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n_{clean_taf}_\n\n"
                 else:
                     result_text += f"📅 **TAF**\n_No TAF forecast available._\n\n"
                 
