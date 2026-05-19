@@ -379,3 +379,91 @@ def get_instant_weather(stations: str) -> str:
     except Exception as e:
         return f"Error fetching weather data: {str(e)}"
 
+def get_station_details(station: str) -> dict:
+    """Fetches detailed structural JSON for the visual station grid and history."""
+    station = station.strip().upper()
+    try:
+        url = f"https://aviationweather.gov/api/data/metar?ids={station}&format=json&hours=4"
+        data = safe_get(url, timeout=5, retries=1)
+        if not data:
+            return {"error": "No data found"}
+        
+        # Sort by observation time descending
+        data.sort(key=lambda x: x.get('obsTime', 0), reverse=True)
+        
+        latest = data[0]
+        
+        # Extract fields
+        temp = latest.get('temp', 'N/A')
+        dew = latest.get('dewp', 'N/A')
+        wdir = latest.get('wdir', 'VRB')
+        wspd = latest.get('wspd', 0)
+        wgst = latest.get('wgst')
+        
+        wind_str = f"{wdir}° / {wspd}"
+        if wgst:
+            wind_str += f"G{wgst}"
+        wind_str += " KT"
+        
+        vis = latest.get('visib', 'N/A')
+        if vis != 'N/A':
+            if vis == '9999':
+                vis_str = "10km+"
+            elif isinstance(vis, (int, float)):
+                if vis < 10:
+                    vis_str = f"{vis} SM"
+                else:
+                    vis_str = f"{vis}m"
+            else:
+                vis_str = str(vis)
+        else:
+            vis_str = "N/A"
+            
+        altim = latest.get('altim', 'N/A')
+        altim_str = "N/A"
+        if altim != 'N/A':
+            if altim > 150:
+                altim_str = f"Q{int(altim)} hPa"
+            else:
+                altim_str = f"A{altim:.2f} inHg"
+                
+        wx = latest.get('wxString', 'CAVOK')
+        if not wx: wx = 'CAVOK'
+        
+        clouds_list = latest.get('clouds', [])
+        cloud_strs = []
+        for c in clouds_list:
+            cvr = c.get('cover', '')
+            base = c.get('base', '')
+            typ = c.get('type', '')
+            if base and str(base).isdigit():
+                base_str = f"{int(base):03d}"
+            else:
+                base_str = str(base)
+            cloud_strs.append(f"{cvr}{base_str}{typ}")
+        
+        cloud_full = " ".join(cloud_strs) if cloud_strs else "CAVOK"
+        if cloud_full.strip() == "": cloud_full = "CAVOK"
+        
+        # History (up to 3)
+        history = [m.get('rawOb', '').replace('\n', ' ').strip() for m in data[:3]]
+        
+        return {
+            "icao": station,
+            "name": latest.get('name', 'Unknown Station'),
+            "time": latest.get('obsTime', '').replace('T', ' ').replace('Z', ' UTC'),
+            "model": {
+                "temp": f"{temp}°C" if temp != 'N/A' else "N/A",
+                "dew": f"{dew}°C" if dew != 'N/A' else "N/A",
+                "windDir": wdir if wdir != 'VRB' else 0, # for rotation
+                "windSpeed": wspd,
+                "windStr": wind_str,
+                "visibility": vis_str,
+                "clouds": cloud_full,
+                "weather": wx,
+                "altimeter": altim_str
+            },
+            "history": history
+        }
+    except Exception as e:
+        return {"error": str(e)}

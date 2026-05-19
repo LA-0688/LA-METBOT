@@ -1,7 +1,7 @@
 import os
 import telebot
 from flask import Flask, request, jsonify, render_template
-from weather_engine import get_instant_weather
+from weather_engine import get_instant_weather, get_station_details
 from dotenv import load_dotenv
 
 # Load secret keys from .env
@@ -28,6 +28,15 @@ def api_weather():
     stations = request.args.get('stations', '')
     weather_data = get_instant_weather(stations)
     return jsonify({"text": weather_data})
+
+@app.route("/api/station", methods=['GET'])
+def api_station():
+    """Frontend Javascript calls this to get detailed JSON for the modal."""
+    icao = request.args.get('icao', '')
+    if not icao:
+        return jsonify({"error": "No station provided"})
+    data = get_station_details(icao)
+    return jsonify(data)
 
 # ==========================================
 # 2. TELEGRAM WEBHOOK ENDPOINT

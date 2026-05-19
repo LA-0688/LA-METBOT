@@ -6,6 +6,7 @@
     <title>METAM Terminal</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Marked.js for markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -47,6 +48,59 @@
         </section>
     </main>
 
+    <!-- Modal -->
+    <div id="stationModal" class="modal-overlay" onclick="if(event.target===this)closeStationModal()">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeStationModal()">&times;</span>
+            <div id="modal-loading" class="loader" style="margin: 3rem auto;"></div>
+            <div id="modal-body" style="display: none;">
+                <div class="modal-header">
+                    <h2 id="modal-icao">VABB</h2>
+                    <p id="modal-name">Mumbai/Shivaji Intl</p>
+                    <div class="modal-divider"></div>
+                </div>
+                
+                <div class="modal-grid">
+                    <div class="grid-item">
+                        <i class="fa-solid fa-location-arrow grid-icon" id="modal-wind-icon"></i>
+                        <div class="grid-label">WIND</div>
+                        <div class="grid-value" id="modal-wind">270° / 15 KT</div>
+                    </div>
+                    <div class="grid-item">
+                        <i class="fa-solid fa-eye grid-icon"></i>
+                        <div class="grid-label">VISIBILITY</div>
+                        <div class="grid-value" id="modal-vis">4000m</div>
+                    </div>
+                    <div class="grid-item">
+                        <i class="fa-solid fa-cloud-showers-heavy grid-icon"></i>
+                        <div class="grid-label">WEATHER</div>
+                        <div class="grid-value" id="modal-wx" style="color: var(--accent-yellow);">TSRA</div>
+                    </div>
+                    <div class="grid-item">
+                        <i class="fa-solid fa-cloud grid-icon"></i>
+                        <div class="grid-label">CLOUDS</div>
+                        <div class="grid-value" id="modal-clouds">SCT020</div>
+                    </div>
+                    <div class="grid-item">
+                        <i class="fa-solid fa-temperature-half grid-icon"></i>
+                        <div class="grid-label">TEMP / DEW</div>
+                        <div class="grid-value"><span id="modal-temp" style="color: #ef4444;">30°C</span> <span style="opacity: 0.5;">|</span> <span id="modal-dew" style="color: #3b82f6;">24°C</span></div>
+                    </div>
+                    <div class="grid-item">
+                        <i class="fa-solid fa-gauge grid-icon"></i>
+                        <div class="grid-label">ALTIMETER</div>
+                        <div class="grid-value" id="modal-altim">Q1012 hPa</div>
+                    </div>
+                </div>
+
+                <div class="modal-history">
+                    <div class="history-label">RECENT REPORTS</div>
+                    <div id="modal-history-list" class="history-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const input = document.getElementById('icao-input');
         const btn = document.getElementById('search-btn');
@@ -72,6 +126,8 @@
                 const card = document.createElement('div');
                 card.className = 'weather-card';
                 const cardId = `card-${index}`;
+                card.onclick = () => openStationModal(stationId);
+                card.style.cursor = 'pointer';
                 
                 const rawContent = [];
                 const decodedContent = [];
@@ -225,6 +281,61 @@
                 resultCard = card;
             });
             return resultCard;
+        }
+
+        // Modal Logic
+        function openStationModal(icao) {
+            const modal = document.getElementById('stationModal');
+            const loader = document.getElementById('modal-loading');
+            const body = document.getElementById('modal-body');
+            
+            modal.style.display = 'flex';
+            loader.style.display = 'block';
+            body.style.display = 'none';
+
+            fetch(`/api/station?icao=${icao}`)
+                .then(res => res.json())
+                .then(data => {
+                    loader.style.display = 'none';
+                    if (data.error) {
+                        alert("Could not load details for " + icao);
+                        closeStationModal();
+                        return;
+                    }
+                    body.style.display = 'block';
+                    
+                    document.getElementById('modal-icao').textContent = data.icao;
+                    document.getElementById('modal-name').textContent = data.name.toUpperCase();
+                    
+                    document.getElementById('modal-wind').textContent = data.model.windStr;
+                    document.getElementById('modal-vis').textContent = data.model.visibility;
+                    document.getElementById('modal-wx').textContent = data.model.weather;
+                    document.getElementById('modal-clouds').textContent = data.model.clouds;
+                    document.getElementById('modal-temp').textContent = data.model.temp;
+                    document.getElementById('modal-dew').textContent = data.model.dew;
+                    document.getElementById('modal-altim').textContent = data.model.altimeter;
+                    
+                    // Rotate wind arrow
+                    const windDir = parseInt(data.model.windDir) || 0;
+                    document.getElementById('modal-wind-icon').style.transform = `rotate(${windDir + 45}deg)`; // FA arrow points diagonally up right by default
+
+                    const histList = document.getElementById('modal-history-list');
+                    histList.innerHTML = '';
+                    data.history.forEach(h => {
+                        const div = document.createElement('div');
+                        div.className = 'history-item';
+                        div.innerHTML = highlightThreats(h);
+                        histList.appendChild(div);
+                    });
+                })
+                .catch(err => {
+                    alert("Error loading station details.");
+                    closeStationModal();
+                });
+        }
+
+        function closeStationModal() {
+            document.getElementById('stationModal').style.display = 'none';
         }
 
         // UTC Clock & Dynamic Title Logic
