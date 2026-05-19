@@ -11,13 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-    <div class="background-glow"></div>
-    <div id="weather-layer">
-        <div class="layer-clouds"></div>
-        <div class="layer-rain-far"></div>
-        <div class="layer-rain-near"></div>
-        <div class="layer-lightning"></div>
-    </div>
+    <canvas id="weatherCanvas" class="weather-canvas"></canvas>
     <main class="container">
         <header>
             <div class="header-main-brand" id="brand-container">
@@ -509,6 +503,79 @@
             input.value = savedStations;
             fetchWeather();
         }
+
+        // ==========================================
+        // DYNAMIC RAIN & WIND ANIMATION (CANVAS)
+        // ==========================================
+        const canvas = document.getElementById('weatherCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let particles = [];
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height - height;
+                this.length = Math.random() * 20 + 10;
+                this.speed = Math.random() * 15 + 15; // Rain falling speed
+                this.wind = Math.random() * 5 + 5; // Wind blowing right
+                this.opacity = Math.random() * 0.4 + 0.1;
+                this.thickness = Math.random() * 2 + 1;
+            }
+
+            update() {
+                this.y += this.speed;
+                this.x += this.wind; // Apply wind force
+
+                if (this.y > height || this.x > width) {
+                    this.reset();
+                    this.y = -this.length; // Start from top
+                    this.x = Math.random() * width - 200; // Account for wind push
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                // Draw line accounting for wind angle
+                ctx.lineTo(this.x - (this.wind * this.length/this.speed), this.y - this.length);
+                ctx.strokeStyle = `rgba(186, 230, 253, ${this.opacity})`;
+                ctx.lineWidth = this.thickness;
+                ctx.stroke();
+            }
+        }
+
+        // Create rain particles
+        for (let i = 0; i < 300; i++) {
+            particles.push(new Particle());
+        }
+
+        function animate() {
+            // Clear canvas instead of redrawing background to allow underlying CSS background to show
+            ctx.clearRect(0, 0, width, height);
+
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
     </script>
 </body>
 </html>
