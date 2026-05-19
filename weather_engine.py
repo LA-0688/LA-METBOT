@@ -448,10 +448,17 @@ def get_station_details(station: str) -> dict:
         # History (up to 3)
         history = [m.get('rawOb', '').replace('\n', ' ').strip() for m in data[:3]]
         
+        obs_time = latest.get('obsTime', 0)
+        if isinstance(obs_time, int):
+            from datetime import datetime, timezone
+            time_str = datetime.fromtimestamp(obs_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+        else:
+            time_str = str(obs_time).replace('T', ' ').replace('Z', ' UTC')
+
         return {
             "icao": station,
             "name": latest.get('name', 'Unknown Station'),
-            "time": latest.get('obsTime', '').replace('T', ' ').replace('Z', ' UTC'),
+            "time": time_str,
             "model": {
                 "temp": f"{temp}°C" if temp != 'N/A' else "N/A",
                 "dew": f"{dew}°C" if dew != 'N/A' else "N/A",
@@ -466,4 +473,5 @@ def get_station_details(station: str) -> dict:
             "history": history
         }
     except Exception as e:
-        return {"error": str(e)}
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
