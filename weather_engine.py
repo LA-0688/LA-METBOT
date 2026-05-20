@@ -407,24 +407,34 @@ def get_station_details(station: str) -> dict:
         
         vis = latest.get('visib', 'N/A')
         if vis != 'N/A':
-            if vis == '9999' or vis == 9999:
-                vis_str = "10km+"
-            elif isinstance(vis, (int, float)):
-                # NOAA API usually returns visibility in Statute Miles (SM) for numeric values < 10
-                # Convert SM to meters (1 SM = 1609.34 meters)
-                if vis < 10:
-                    vis_m = int(round((vis * 1609.34) / 100.0) * 100)
-                    if vis_m >= 9999:
-                        vis_str = "10km+"
-                    elif vis_m >= 1000:
-                        vis_str = f"{vis_m}m"
-                    else:
-                        vis_str = f"{vis_m}m"
-                else:
-                    # If it's returning raw meters for some reason
-                    vis_str = f"{vis}m" if vis < 9999 else "10km+"
+            vis_str_val = str(vis).strip().upper()
+            if vis_str_val == '9999':
+                vis_str = "10+ Kms"
+            elif vis_str_val == '6+':
+                vis_str = "10+ Kms"
             else:
-                vis_str = str(vis)
+                try:
+                    vis_num = float(vis)
+                    # Convert SM to meters if it looks like SM (API returns < 20 for SM)
+                    if vis_num < 40:
+                        vis_m = vis_num * 1609.34
+                    else:
+                        vis_m = vis_num
+                        
+                    if vis_m > 5000:
+                        vis_km = vis_m / 1000.0
+                        if vis_km >= 9.9:
+                            vis_str = "10+ Kms"
+                        else:
+                            vis_str = f"{int(round(vis_km))} Kms"
+                    else:
+                        vis_rounded = int(round(vis_m / 50.0) * 50)
+                        vis_str = f"{vis_rounded}m"
+                except ValueError:
+                    if '+' in vis_str_val:
+                        vis_str = f"{vis_str_val.replace('SM', '').strip()} Kms"
+                    else:
+                        vis_str = vis_str_val
         else:
             vis_str = "N/A"
             
