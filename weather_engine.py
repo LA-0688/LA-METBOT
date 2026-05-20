@@ -346,12 +346,12 @@ def get_instant_weather(stations: str) -> str:
                             raw_taf = raw_taf.strip()
                             while raw_taf.upper().startswith('TAF'):
                                 raw_taf = raw_taf[3:].strip()
-                            # Extract timestamp from NOAA (e.g., "2026/05/18 11:00")
                             noaa_time = lines[0].strip()
                             issue_time_formatted = noaa_time.replace('/', '-') + ":00 UTC"
                 except Exception:
                     pass
                 
+                if raw_taf:
                     result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
                 else:
                     result_text += f"📅 **TAF**\n_No TAF forecast available._\n\n"
