@@ -254,7 +254,7 @@ def get_instant_weather(stations: str) -> str:
                 cloud_str = decode_clouds(clouds)
                 wx_str = decode_wx(wx)
                 
-                result_text += f"✈️ *METAR* ({elapsed_min}m ago)\n`{raw_metar}`\n\n"
+                result_text += f"✈️ *METAR* ({elapsed_min}m ago)\n```\n{raw_metar}\n```\n\n"
                 if is_stale:
                     result_text += "⚠️ *Warning:* Decoded data below may be stale (source delayed). Showing latest raw METAR from NOAA if available.\n\n"
                 if name != 'Unknown Station':
@@ -294,7 +294,7 @@ def get_instant_weather(stations: str) -> str:
                         pass
                     
                     if raw_metar:
-                        result_text += f"✈️ *METAR*\n`{raw_metar}`\n\n"
+                        result_text += f"✈️ *METAR*\n```\n{raw_metar}\n```\n\n"
                     else:
                         result_text += f"✈️ *METAR*\n_No METAR data available._\n\n"
                 
