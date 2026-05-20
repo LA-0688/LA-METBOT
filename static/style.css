@@ -632,9 +632,9 @@ input:checked + .slider:before { transform: translateX(20px); }
     background: rgba(30, 41, 59, 0.85);
     border: 1px solid rgba(56, 189, 248, 0.3);
     border-radius: 16px;
-    padding: 1.8rem 2rem;
-    width: 94%;
-    max-width: 720px;
+    padding: 2rem 2.5rem;
+    width: 96%;
+    max-width: 900px;
     overflow-y: hidden;
     position: relative;
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(56, 189, 248, 0.1);
@@ -661,7 +661,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 #modal-icao {
-    font-size: 2.5rem;
+    font-size: 3rem;
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
     color: var(--accent-cyan);
@@ -670,7 +670,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 #modal-name {
-    font-size: 0.85rem;
+    font-size: 1rem;
     color: var(--text-dim);
     margin: 0.3rem 0 0 0;
     letter-spacing: 2px;
@@ -686,8 +686,8 @@ input:checked + .slider:before { transform: translateX(20px); }
 .modal-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.8rem;
-    margin-bottom: 1rem;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
 }
 
 .grid-item {
@@ -695,8 +695,8 @@ input:checked + .slider:before { transform: translateX(20px); }
     flex-direction: column;
     align-items: center;
     background: rgba(15, 23, 42, 0.5);
-    padding: 0.9rem 0.6rem;
-    border-radius: 10px;
+    padding: 1.2rem 0.8rem;
+    border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.05);
     transition: transform 0.2s, background 0.3s;
 }
@@ -708,22 +708,22 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .grid-icon {
-    font-size: 1.6rem;
+    font-size: 2rem;
     color: var(--accent-cyan);
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.5rem;
     text-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
     transition: transform 0.3s ease;
 }
 
 .grid-label {
-    font-size: 0.7rem;
+    font-size: 0.8rem;
     color: var(--text-dim);
-    letter-spacing: 1px;
-    margin-bottom: 0.3rem;
+    letter-spacing: 1.5px;
+    margin-bottom: 0.4rem;
 }
 
 .grid-value {
-    font-size: 1.05rem;
+    font-size: 1.3rem;
     font-weight: 700;
     font-family: 'JetBrains Mono', monospace;
     text-align: center;
@@ -731,23 +731,23 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 .modal-history {
     background: rgba(0, 0, 0, 0.3);
-    padding: 0.8rem 1rem;
-    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    border-radius: 12px;
 }
 
 .history-label {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     color: var(--text-dim);
-    margin-bottom: 0.4rem;
-    letter-spacing: 1px;
+    margin-bottom: 0.5rem;
+    letter-spacing: 1.5px;
     text-align: center;
 }
 
 .history-item {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
+    font-size: 0.85rem;
     line-height: 1.5;
-    padding: 0.4rem 0;
+    padding: 0.5rem 0;
     border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
     word-break: break-all;
 }

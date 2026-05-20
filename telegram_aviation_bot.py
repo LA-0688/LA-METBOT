@@ -29,7 +29,7 @@ def handle_all_messages(message):
         print("⚡ Fetching and decoding raw data instantly...")
         weather_data = get_instant_weather(user_text)
         
-# Send instantly
+        # Send instantly
         try:
             bot.reply_to(message, weather_data, parse_mode="Markdown")
         except telebot.apihelper.ApiTelegramException:
