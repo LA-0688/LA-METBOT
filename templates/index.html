@@ -101,6 +101,53 @@
         const cardsGrid = document.getElementById('weather-cards');
         const loader = document.getElementById('loader');
 
+        function highlightThreats(metar) {
+            const criticalCodes = [
+                'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ', 'TCU', 'CU', 'CB', 'SHRA', 'MIFG'
+            ];
+            
+            // Remove redundant METAR or TAF prefix at the start (handling any leading tags or spaces)
+            const cleanMetar = metar.trim().replace(/^((?:<[^>]+>|\s)*)(METAR|TAF)\s+/, '$1');
+            
+            const parts = cleanMetar.split(/\s+/);
+            if (parts.length <= 1) return cleanMetar;
+            
+            const stationCode = parts[0];
+            const restOfMetar = parts.slice(1).join(' ');
+            
+            // 1. Highlight Weather Phenomenon (TS, FG, etc.) with optional descriptors
+            const phenomRegex = new RegExp(`\\b([+-]?(?:MI|BC|PR|DR|BL|SH|TS|FZ)?(?:${criticalCodes.join('|')}))\\b`, 'g');
+            let highlighted = restOfMetar.replace(phenomRegex, (match) => {
+                return `<span class="metar-threat">${match}</span>`;
+            });
+            
+            // 2. Highlight Low Visibility (ICAO 4-digit below 1000m)
+            const visRegex = /\b(0\d{3})(?![Z])\b/g;
+            highlighted = highlighted.replace(visRegex, '<span class="metar-threat">$1</span>');
+
+            // 3. Highlight High/Gusty Winds (e.g., G20KT or speeds 10KT+)
+            const windRegex = /\b(\d{3}(?:[1-9]\d)G?\d{0,2}KT)\b/g;
+            highlighted = highlighted.replace(windRegex, '<span class="metar-threat">$1</span>');
+            
+            // Always highlight any wind block with a Gust (G)
+            const gustyWindRegex = /\b(\d{5}G\d{2,3}KT)\b/g;
+            highlighted = highlighted.replace(gustyWindRegex, '<span class="metar-threat">$1</span>');
+            
+            // Also catch standalone gusts if they occur
+            const gustRegex = /\bG\d{2,3}KT\b/g;
+            highlighted = highlighted.replace(gustRegex, '<span class="metar-threat">$1</span>');
+            
+            // 4. Highlight Low Cloud Base (800 feet and below)
+            const cloudRegex = /\b((?:FEW|SCT|BKN|OVC|VV)00[0-8](?:CB|TCU)?)\b/g;
+            highlighted = highlighted.replace(cloudRegex, '<span class="metar-threat">$1</span>');
+            
+            // 5. Highlight any cloud group containing CB or TCU regardless of height
+            const convectiveCloudRegex = /\b([A-Z]{3}\d{3}(?:CB|TCU))\b/g;
+            highlighted = highlighted.replace(convectiveCloudRegex, '<span class="metar-threat">$1</span>');
+            
+            return stationCode + ' ' + highlighted;
+        }
+
         function createCardElement(data) {
             const blocks = data.split('### 📍');
             let resultCard = null;
@@ -179,52 +226,6 @@
                     } catch (e) {
                         tafTime = 'N/A';
                     }
-                }
-                            function highlightThreats(metar) {
-                    const criticalCodes = [
-                        'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ', 'TCU', 'CU', 'CB', 'SHRA', 'MIFG'
-                    ];
-                    
-                    // Remove redundant METAR or TAF prefix at the start (handling any leading tags or spaces)
-                    const cleanMetar = metar.trim().replace(/^((?:<[^>]+>|\s)*)(METAR|TAF)\s+/, '$1');
-                    
-                    const parts = cleanMetar.split(/\s+/);
-                    if (parts.length <= 1) return cleanMetar;
-                    
-                    const stationCode = parts[0];
-                    const restOfMetar = parts.slice(1).join(' ');
-                    
-                    // 1. Highlight Weather Phenomenon (TS, FG, etc.) with optional descriptors
-                    const phenomRegex = new RegExp(`\\b([+-]?(?:MI|BC|PR|DR|BL|SH|TS|FZ)?(?:${criticalCodes.join('|')}))\\b`, 'g');
-                    let highlighted = restOfMetar.replace(phenomRegex, (match) => {
-                        return `<span class="metar-threat">${match}</span>`;
-                    });
-                    
-                    // 2. Highlight Low Visibility (ICAO 4-digit below 1000m)
-                    const visRegex = /\b(0\d{3})(?![Z])\b/g;
-                    highlighted = highlighted.replace(visRegex, '<span class="metar-threat">$1</span>');
- 
-                    // 3. Highlight High/Gusty Winds (e.g., G20KT or speeds 10KT+)
-                    const windRegex = /\b(\d{3}(?:[1-9]\d)G?\d{0,2}KT)\b/g;
-                    highlighted = highlighted.replace(windRegex, '<span class="metar-threat">$1</span>');
-                    
-                    // Always highlight any wind block with a Gust (G)
-                    const gustyWindRegex = /\b(\d{5}G\d{2,3}KT)\b/g;
-                    highlighted = highlighted.replace(gustyWindRegex, '<span class="metar-threat">$1</span>');
-                    
-                    // Also catch standalone gusts if they occur
-                    const gustRegex = /\bG\d{2,3}KT\b/g;
-                    highlighted = highlighted.replace(gustRegex, '<span class="metar-threat">$1</span>');
-                    
-                    // 4. Highlight Low Cloud Base (800 feet and below)
-                    const cloudRegex = /\b((?:FEW|SCT|BKN|OVC|VV)00[0-8](?:CB|TCU)?)\b/g;
-                    highlighted = highlighted.replace(cloudRegex, '<span class="metar-threat">$1</span>');
-                    
-                    // 5. Highlight any cloud group containing CB or TCU regardless of height
-                    const convectiveCloudRegex = /\b([A-Z]{3}\d{3}(?:CB|TCU))\b/g;
-                    highlighted = highlighted.replace(convectiveCloudRegex, '<span class="metar-threat">$1</span>');
-                    
-                    return stationCode + ' ' + highlighted;
                 }
 
                 card.innerHTML = `
