@@ -407,13 +407,22 @@ def get_station_details(station: str) -> dict:
         
         vis = latest.get('visib', 'N/A')
         if vis != 'N/A':
-            if vis == '9999':
+            if vis == '9999' or vis == 9999:
                 vis_str = "10km+"
             elif isinstance(vis, (int, float)):
+                # NOAA API usually returns visibility in Statute Miles (SM) for numeric values < 10
+                # Convert SM to meters (1 SM = 1609.34 meters)
                 if vis < 10:
-                    vis_str = f"{vis} SM"
+                    vis_m = int(round((vis * 1609.34) / 100.0) * 100)
+                    if vis_m >= 9999:
+                        vis_str = "10km+"
+                    elif vis_m >= 1000:
+                        vis_str = f"{vis_m}m"
+                    else:
+                        vis_str = f"{vis_m}m"
                 else:
-                    vis_str = f"{vis}m"
+                    # If it's returning raw meters for some reason
+                    vis_str = f"{vis}m" if vis < 9999 else "10km+"
             else:
                 vis_str = str(vis)
         else:
@@ -425,7 +434,9 @@ def get_station_details(station: str) -> dict:
             if altim > 150:
                 altim_str = f"Q{int(altim)} hPa"
             else:
-                altim_str = f"A{altim:.2f} inHg"
+                # Convert inHg to hPa
+                hpa = int(round(altim * 33.8639))
+                altim_str = f"Q{hpa} hPa"
                 
         wx = latest.get('wxString', 'CAVOK')
         if not wx: wx = 'CAVOK'

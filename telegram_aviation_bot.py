@@ -11,9 +11,6 @@ from weather_engine import get_instant_weather
 
 # Initialize the Telegram Bot
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
-        
-    except Exception as e:
-        return f"Error fetching weather data: {str(e)}"
 
 # ---------------------------------------------------------
 # TELEGRAM LISTENERS
