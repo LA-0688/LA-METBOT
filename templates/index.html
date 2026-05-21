@@ -184,7 +184,16 @@
                 const card = document.createElement('div');
                 card.className = 'weather-card';
                 const cardId = `card-${index}`;
-                card.onclick = () => openStationModal(stationId);
+                card.onclick = (e) => {
+                    // Block modal if click came from toggle area or any interactive control inside card
+                    const t = e.target;
+                    if (t.closest('.view-toggle') ||
+                        t.closest('.copy-btn') ||
+                        t.tagName === 'INPUT' ||
+                        t.tagName === 'LABEL' ||
+                        t.closest('label')) return;
+                    openStationModal(stationId);
+                };
                 card.style.cursor = 'pointer';
                 
                 const rawContent = [];
@@ -402,7 +411,7 @@
                     try {
                         const resp = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
                         const data = await resp.json();
-                        const city = data.city || data.locality || "Unknown";
+                        const city = data.locality || data.city || data.principalSubdivision || "Unknown";
                         const country = data.countryCode || "??";
                         setupClock(city, country);
                     } catch (err) {

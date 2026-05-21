@@ -129,28 +129,37 @@ def get_instant_weather(stations: str) -> str:
     clean_stations = ",".join(stations_list)
     result_text = ""
     
-    # Cache Lookup
+    # Cache Lookup — use a normalized key so single-station calls hit the same cache
+    cache_key = clean_stations
     current_time = time.time()
-    if stations in weather_cache:
-        cached_data, timestamp = weather_cache[stations]
+    if cache_key in weather_cache:
+        cached_data, timestamp = weather_cache[cache_key]
         if current_time - timestamp < 60: # 1 minute TTL
             return cached_data
     
     try:
-        # 1. Fetch Data in Parallel (METAR, TAF, and D-ATIS)
+        # 1. Fetch ALL data in parallel: METAR, TAF, D-ATIS, sun times, and NOAA fallbacks
         urls = {
             'metar': f"https://aviationweather.gov/api/data/metar?ids={clean_stations}&format=json",
             'taf': f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
         }
         
-        # Add D-ATIS URLs for each station
+        # Add D-ATIS URLs and NOAA fallback URLs for each station
         for s in stations_list:
             urls[f'atis_{s}'] = f"https://datis.clowd.io/api/{s}"
+            urls[f'noaa_metar_{s}'] = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{s}.TXT"
+            urls[f'noaa_taf_{s}'] = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{s}.TXT"
             
         def fetch_url(name, url):
             try:
                 if 'aviationweather' in url:
                     return name, safe_get(url, timeout=6, retries=1)
+                elif 'tgftp.nws.noaa.gov' in url:
+                    # NOAA plain-text endpoints
+                    resp = requests.get(url, timeout=4)
+                    if resp.status_code == 200:
+                        return name, resp.text
+                    return name, None
                 else:
                     # D-ATIS requests
                     resp = requests.get(url, timeout=5)
@@ -161,7 +170,7 @@ def get_instant_weather(stations: str) -> str:
                 return name, None
 
         results = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             future_to_name = {executor.submit(fetch_url, name, url): name for name, url in urls.items()}
             for future in concurrent.futures.as_completed(future_to_name):
                 name, data = future.result()
@@ -180,6 +189,24 @@ def get_instant_weather(stations: str) -> str:
             for t in taf_response:
                 tafs_by_station[t.get('icaoId', 'Unknown')] = t
         
+        # Pre-fetch sun times in parallel for all stations that have coordinates
+        # We pass lat/lon from METAR data; sun_cache handles repeat lookups
+        sun_futures = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as sun_executor:
+            for station in stations_list:
+                lat_tmp, lon_tmp = None, None
+                if station in KNOWN_STATIONS:
+                    lat_tmp = KNOWN_STATIONS[station].get('lat')
+                    lon_tmp = KNOWN_STATIONS[station].get('lon')
+                m_tmp = metars_by_station.get(station)
+                if m_tmp:
+                    lat_tmp = m_tmp.get('lat', lat_tmp)
+                    lon_tmp = m_tmp.get('lon', lon_tmp)
+                if lat_tmp is not None and lon_tmp is not None:
+                    sun_futures[station] = sun_executor.submit(get_sun_times, lat_tmp, lon_tmp)
+            # Collect results
+            sun_results = {s: f.result() for s, f in sun_futures.items()}
+
         for station in stations_list:
             lat, lon = None, None
             header_info = ""
@@ -202,7 +229,7 @@ def get_instant_weather(stations: str) -> str:
                 lat_dir = 'N' if lat >= 0 else 'S'
                 lon_dir = 'E' if lon >= 0 else 'W'
                 coords = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
-                sun = get_sun_times(lat, lon)
+                sun = sun_results.get(station, {'sunrise': 'N/A', 'sunset': 'N/A'})
                 header_info = f" | **{coords}** | **🌅 {sun['sunrise']} 🌇 {sun['sunset']}**"
 
             result_text += f"### 📍 **{station}** | {name}{header_info}\n\n"
@@ -230,16 +257,13 @@ def get_instant_weather(stations: str) -> str:
                     except Exception:
                         pass
                 
-                # Fallback to NOAA if stale
+                # Use pre-fetched NOAA data if stale (already fetched in parallel above)
                 if is_stale:
-                    try:
-                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=2)
-                        if noaa_m.status_code == 200:
-                            lines = noaa_m.text.strip().split('\n')
-                            if len(lines) >= 2:
-                                raw_metar = lines[1]
-                    except Exception:
-                        pass
+                    noaa_text = results.get(f'noaa_metar_{station}')
+                    if noaa_text:
+                        lines = noaa_text.strip().split('\n')
+                        if len(lines) >= 2:
+                            raw_metar = lines[1]
                 flt_cat = m.get('fltCat', 'N/A')
                 wdir = m.get('wdir', 'VRB' if m.get('wdir') == 0 else m.get('wdir', 'N/A'))
                 wspd = m.get('wspd', 'N/A')
@@ -277,21 +301,13 @@ def get_instant_weather(stations: str) -> str:
                 # Update Cache
                 weather_cache[station] = (result_text, time.time())
             else:
-                # Try Cache first as fallback
-                cached = weather_cache.get(station)
-                if cached and (time.time() - cached[1] < CACHE_TTL):
-                    result_text += cached[0]
-                else:
-                    # NOAA Fallback
-                    raw_metar = None
-                    try:
-                        noaa_m = requests.get(f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT", timeout=5)
-                        if noaa_m.status_code == 200:
-                            lines = noaa_m.text.strip().split('\n')
-                            if len(lines) >= 2:
-                                raw_metar = lines[1]
-                    except Exception:
-                        pass
+                # Use pre-fetched NOAA METAR as fallback (already fetched in parallel above)
+                raw_metar = None
+                noaa_text = results.get(f'noaa_metar_{station}')
+                if noaa_text:
+                    lines = noaa_text.strip().split('\n')
+                    if len(lines) >= 2:
+                        raw_metar = lines[1]
                     
                     if raw_metar:
                         result_text += f"✈️ **METAR**\n```\n{raw_metar}\n\n```\n\n"
@@ -334,22 +350,19 @@ def get_instant_weather(stations: str) -> str:
                 result_text += "*Decoded:*\n"
                 result_text += "  🔹 **INITIAL**: Wind 290° at 7kt, Vis 4000m, Scattered clouds at 2000ft\n\n"
             else:
-                # TAF Fallback
+                # Use pre-fetched NOAA TAF as fallback (already fetched in parallel above)
                 raw_taf = None
                 issue_time_formatted = "N/A"
-                try:
-                    noaa_t = requests.get(f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT", timeout=5)
-                    if noaa_t.status_code == 200:
-                        lines = noaa_t.text.strip().split('\n')
-                        if len(lines) >= 2:
-                            raw_taf = " ".join(lines[1:])
-                            raw_taf = raw_taf.strip()
-                            while raw_taf.upper().startswith('TAF'):
-                                raw_taf = raw_taf[3:].strip()
-                            noaa_time = lines[0].strip()
-                            issue_time_formatted = noaa_time.replace('/', '-') + ":00 UTC"
-                except Exception:
-                    pass
+                noaa_text = results.get(f'noaa_taf_{station}')
+                if noaa_text:
+                    lines = noaa_text.strip().split('\n')
+                    if len(lines) >= 2:
+                        raw_taf = " ".join(lines[1:])
+                        raw_taf = raw_taf.strip()
+                        while raw_taf.upper().startswith('TAF'):
+                            raw_taf = raw_taf[3:].strip()
+                        noaa_time = lines[0].strip()
+                        issue_time_formatted = noaa_time.replace('/', '-') + ":00 UTC"
                 
                 if raw_taf:
                     result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
@@ -373,7 +386,7 @@ def get_instant_weather(stations: str) -> str:
             else:
                 result_text += f"📻 *D-ATIS*\n_Not available or could not connect._\n\n"
                 
-        weather_cache[stations] = (result_text, current_time)
+        weather_cache[cache_key] = (result_text, current_time)
         return result_text
         
     except Exception as e:
