@@ -612,6 +612,27 @@ input:checked + .slider:before { transform: translateX(20px); }
     color: #eab308 !important;
 }
 
+/* Copy Button */
+.copy-btn {
+    background: none;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.copy-btn:hover {
+    color: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+    background: rgba(56, 189, 248, 0.1);
+}
+
 /* Modal Styles */
 .modal-overlay {
     position: fixed;

@@ -101,6 +101,23 @@
         const cardsGrid = document.getElementById('weather-cards');
         const loader = document.getElementById('loader');
 
+        // Copy raw text to clipboard
+        function copyRawText(btn) {
+            const block = btn.closest('.metar-block') || btn.closest('.taf-block');
+            if (!block) return;
+            const codeEl = block.querySelector('code');
+            if (!codeEl) return;
+            const rawText = codeEl.textContent.trim();
+            navigator.clipboard.writeText(rawText).then(() => {
+                btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                btn.style.color = '#22c55e';
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fa-regular fa-copy"></i>';
+                    btn.style.color = '';
+                }, 1500);
+            });
+        }
+
         function highlightThreats(metar) {
             const criticalCodes = [
                 'TS', 'RA', 'SN', 'FZ', 'WS', 'SQ', 'FC', 'SS', 'DS', 'VA', 'FG', 'BLDU', 'DZ', 'TCU', 'CU', 'CB', 'SHRA', 'MIFG'
@@ -252,7 +269,7 @@
                     <div class="card-content">
                         <div class="raw-view">
                             <div class="metar-block">
-                                <div class="metar-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">METAR ${metarTime ? `(${metarTime})` : ''}</div>
+                                <div class="metar-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: space-between;">METAR ${metarTime ? `(${metarTime})` : ''}<button class="copy-btn" onclick="event.stopPropagation(); copyRawText(this)" title="Copy METAR"><i class="fa-regular fa-copy"></i></button></div>
                                 ${(() => {
                                     const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
                                     const metarBlock = codeBlocks.find(b => !/\d{4}\/\d{4}/.test(b));
@@ -260,7 +277,7 @@
                                 })()}
                             </div>
                             <div class="taf-block" style="margin-top: 0.5rem;">
-                                <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace;">TAF ${tafTime ? `(${tafTime})` : ''}</div>
+                                <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: space-between;">TAF ${tafTime ? `(${tafTime})` : ''}<button class="copy-btn" onclick="event.stopPropagation(); copyRawText(this)" title="Copy TAF"><i class="fa-regular fa-copy"></i></button></div>
                                 ${(() => {
                                     const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
                                     const tafBlock = codeBlocks.find(b => /\d{4}\/\d{4}/.test(b));
