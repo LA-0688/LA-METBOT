@@ -153,6 +153,7 @@ def get_instant_weather(stations: str) -> str:
             urls[f'atis_{s}'] = f"https://datis.clowd.io/api/{s}"
             urls[f'noaa_metar_{s}'] = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{s}.TXT"
             urls[f'noaa_taf_{s}'] = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{s}.TXT"
+            urls[f'checkwx_metar_{s}'] = f"https://api.checkwx.com/metar/{s}/decoded"
             urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
             
         def fetch_url(name, url):
@@ -164,6 +165,13 @@ def get_instant_weather(stations: str) -> str:
                     resp = requests.get(url, timeout=4)
                     if resp.status_code == 200:
                         return name, resp.text
+                    return name, None
+                elif 'api.checkwx.com' in url:
+                    api_key = os.environ.get('CHECKWX_API_KEY')
+                    if not api_key: return name, None
+                    resp = requests.get(url, headers={'X-API-Key': api_key}, timeout=5)
+                    if resp.status_code == 200:
+                        return name, resp.json()
                     return name, None
                 elif 'avwx.rest' in url:
                     api_key = os.environ.get('AVWX_API_KEY')
@@ -254,21 +262,31 @@ def get_instant_weather(stations: str) -> str:
                 while raw_metar.upper().startswith('METAR'):
                     raw_metar = raw_metar[5:].strip()
                 obs_time_raw = m.get('obsTime', 'N/A')
-                obs_time = str(obs_time_raw).replace('T', ' ').replace('Z', ' UTC')
                 
                 # Check if stale (older than 2 hours)
-                is_stale = False
+                is_stale = True # Default to stale if we can't parse it, so fallbacks trigger
                 used_avwx = False
                 elapsed_min = 0
-                if obs_time_raw != 'N/A':
+                
+                if isinstance(obs_time_raw, int):
+                    obs_time = datetime.fromtimestamp(obs_time_raw, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+                    obs_dt = datetime.fromtimestamp(obs_time_raw, tz=timezone.utc)
+                    now_dt = datetime.now(timezone.utc)
+                    elapsed_min = int((now_dt - obs_dt).total_seconds() / 60)
+                    if (now_dt - obs_dt).total_seconds() <= 7200:
+                        is_stale = False
+                elif obs_time_raw != 'N/A':
+                    obs_time = str(obs_time_raw).replace('T', ' ').replace('Z', ' UTC')
                     try:
                         obs_dt = datetime.fromisoformat(obs_time_raw.replace('Z', '+00:00'))
                         now_dt = datetime.now(timezone.utc)
                         elapsed_min = int((now_dt - obs_dt).total_seconds() / 60)
-                        if (now_dt - obs_dt).total_seconds() > 7200: # 2 hours
-                            is_stale = True
+                        if (now_dt - obs_dt).total_seconds() <= 7200: # 2 hours
+                            is_stale = False
                     except Exception:
                         pass
+                else:
+                    obs_time = 'N/A'
                 
                 # Use pre-fetched NOAA data if stale (already fetched in parallel above)
                 if is_stale:
@@ -285,6 +303,35 @@ def get_instant_weather(stations: str) -> str:
                                     is_stale = False
                             except Exception:
                                 pass
+                                
+                # Check CheckWX if STILL stale
+                if is_stale:
+                    cwx_data = results.get(f'checkwx_metar_{station}')
+                    if cwx_data and cwx_data.get('results', 0) > 0:
+                        try:
+                            item = cwx_data['data'][0]
+                            obs_dt = datetime.fromisoformat(item['observed'].replace('Z', '+00:00'))
+                            now_dt = datetime.now(timezone.utc)
+                            if (now_dt - obs_dt).total_seconds() <= 7200:
+                                raw_metar = item['raw_text']
+                                is_stale = False
+                                elapsed_min = int((now_dt - obs_dt).total_seconds() / 60)
+                                obs_time = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+                                
+                                used_avwx = True # Reuse this flag so it doesn't overwrite
+                                wdir = item.get('wind', {}).get('degrees', 'VRB')
+                                wspd = item.get('wind', {}).get('speed_kts', 0)
+                                vis = item.get('visibility', {}).get('meters', 'N/A')
+                                temp = item.get('temperature', {}).get('celsius', 'N/A')
+                                dewp = item.get('dewpoint', {}).get('celsius', 'N/A')
+                                altim = item.get('barometer', {}).get('hpa', 'N/A')
+                                altim = f"Q{altim}" if altim != 'N/A' else 'N/A'
+                                vis_formatted = format_visibility(vis, station)
+                                flt_cat = item.get('flight_category', 'N/A')
+                                clouds = item.get('clouds', [])
+                                wx = ""
+                        except Exception:
+                            pass
                                 
                 # Check AVWX if STILL stale
                 if is_stale:
@@ -369,7 +416,20 @@ def get_instant_weather(stations: str) -> str:
                         except Exception:
                             pass
                 
-                # Check AVWX if NOAA failed
+                # Check CheckWX if NOAA failed
+                if not raw_metar:
+                    cwx_data = results.get(f'checkwx_metar_{station}')
+                    if cwx_data and cwx_data.get('results', 0) > 0:
+                        try:
+                            item = cwx_data['data'][0]
+                            obs_dt = datetime.fromisoformat(item['observed'].replace('Z', '+00:00'))
+                            now_dt = datetime.now(timezone.utc)
+                            if (now_dt - obs_dt).total_seconds() <= 7200:
+                                raw_metar = item['raw_text']
+                        except Exception:
+                            pass
+                
+                # Check AVWX if CheckWX failed
                 if not raw_metar:
                     avwx_data = results.get(f'avwx_metar_{station}')
                     if avwx_data and 'raw' in avwx_data and 'time' in avwx_data:
@@ -485,6 +545,60 @@ def get_station_details(station: str) -> dict:
             station_name = info_data[0].get('site', 'Unknown Station')
             
         if not data:
+            cwx_api_key = os.environ.get('CHECKWX_API_KEY')
+            if cwx_api_key:
+                try:
+                    cwx_url = f"https://api.checkwx.com/metar/{station}/decoded"
+                    cwx_resp = requests.get(cwx_url, headers={'X-API-Key': cwx_api_key}, timeout=5)
+                    if cwx_resp.status_code == 200:
+                        c_data = cwx_resp.json()
+                        if c_data.get('results', 0) > 0:
+                            item = c_data['data'][0]
+                            obs_dt = datetime.fromisoformat(item['observed'].replace('Z', '+00:00'))
+                            now_dt = datetime.now(timezone.utc)
+                            if (now_dt - obs_dt).total_seconds() <= 7200:
+                                t_val = item.get('temperature', {}).get('celsius', 'N/A')
+                                d_val = item.get('dewpoint', {}).get('celsius', 'N/A')
+                                wdir = item.get('wind', {}).get('degrees', 0)
+                                wspd = item.get('wind', {}).get('speed_kts', 0)
+                                
+                                vis_val = item.get('visibility', {}).get('meters', 'N/A')
+                                if vis_val != 'N/A':
+                                    try:
+                                        vis_m = float(vis_val)
+                                        vis_str = "10+ Kms" if vis_m >= 9999 else f"{int(vis_m)}m"
+                                    except:
+                                        vis_str = str(vis_val)
+                                else:
+                                    vis_str = "N/A"
+                                    
+                                qnh_val = item.get('barometer', {}).get('hpa', 'N/A')
+                                qnh_str = f"Q{qnh_val} hPa" if qnh_val != 'N/A' else "N/A"
+                                
+                                cloud_full = "CAVOK"
+                                if item.get('clouds'):
+                                    cloud_full = " ".join([f"{c.get('code','')} {c.get('base_feet_agl','')}".strip() for c in item['clouds']])
+                                    
+                                return {
+                                    "icao": station,
+                                    "name": station_name,
+                                    "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                                    "model": {
+                                        "temp": f"{t_val}°C" if t_val != 'N/A' else "N/A",
+                                        "dew": f"{d_val}°C" if d_val != 'N/A' else "N/A",
+                                        "windDir": wdir,
+                                        "windSpeed": wspd,
+                                        "windStr": f"{wdir}° / {wspd} KT (CheckWX)",
+                                        "visibility": vis_str,
+                                        "clouds": cloud_full,
+                                        "weather": "CheckWX Fallback",
+                                        "altimeter": qnh_str
+                                    },
+                                    "history": [item.get('raw_text', '')]
+                                }
+                except Exception:
+                    pass
+                    
             avwx_api_key = os.environ.get('AVWX_API_KEY')
             if avwx_api_key:
                 try:
