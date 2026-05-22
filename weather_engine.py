@@ -8,6 +8,7 @@ import urllib3
 import ssl
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from urllib3.poolmanager import PoolManager
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -20,6 +21,16 @@ class CustomAdapter(requests.adapters.HTTPAdapter):
         ctx.verify_mode = ssl.CERT_NONE
         kwargs['ssl_context'] = ctx
         return super().init_poolmanager(*args, **kwargs)
+
+class TLSAdapter(requests.adapters.HTTPAdapter):
+    """Custom adapter to handle older Indian gov server SSL handshakes safely."""
+    def init_poolmanager(self, connections, maxsize, block=False):
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1') # Bypasses strict cipher blocks
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, ssl_context=ctx)
+
 
 load_dotenv()
 
@@ -97,14 +108,86 @@ def parse_amss_time(metar_str: str) -> datetime | None:
     except Exception:
         return None
 
+def fetch_live_aai_weather(icao: str) -> tuple[str | None, datetime | None]:
+    """Tier 1A: Scrapes the live Airports Authority of India (AAI) portal
+    to fetch VOGO/VAPO METAR weather directly from the domestic stream.
+    """
+    if not icao.upper().startswith('V'):
+        return None, None
+        
+    url = "https://aim-india.aai.aero/eaip/metar_taf.php"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+    
+    try:
+        session = requests.Session()
+        session.mount('https://', TLSAdapter())
+        # AAI requires hitting root first to establish session cookies
+        session.get("https://aim-india.aai.aero/", headers=headers, timeout=4)
+        
+        # Now pull the raw domestic metar grid
+        response = session.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+            page_text = soup.get_text()
+            
+            # Find any report starting with ICAO
+            pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
+            matches = re.finditer(pattern, page_text, re.IGNORECASE)
+            for m in matches:
+                raw = m.group(0).strip().rstrip('=')
+                # Exclude TAF lines (which have validity period e.g. 2218/2400)
+                if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
+                    continue
+                obs_dt = parse_amss_time(raw)
+                if obs_dt:
+                    return raw, obs_dt
+    except Exception:
+        pass
+    return None, None
+
+def fetch_aai_taf(icao: str) -> tuple[str | None, datetime | None]:
+    """Tier 1A: Scrapes the live Airports Authority of India (AAI) portal
+    to fetch VOGO/VAPO TAF weather directly from the domestic stream.
+    """
+    if not icao.upper().startswith('V'):
+        return None, None
+        
+    url = "https://aim-india.aai.aero/eaip/metar_taf.php"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+    
+    try:
+        session = requests.Session()
+        session.mount('https://', TLSAdapter())
+        session.get("https://aim-india.aai.aero/", headers=headers, timeout=4)
+        response = session.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+            page_text = soup.get_text()
+            
+            pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
+            matches = re.finditer(pattern, page_text, re.IGNORECASE)
+            for m in matches:
+                raw = m.group(0).strip().rstrip('=')
+                # Only match TAF lines (must contain validity period e.g. 2218/2400)
+                if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
+                    obs_dt = parse_amss_time(raw)
+                    return raw, obs_dt
+    except Exception:
+        pass
+    return None, None
+
 def fetch_ogimet_metar(icao: str) -> tuple[str | None, datetime | None]:
     """Tier 1B: Scrape the latest METAR for an Indian station from Ogimet.
     Returns (raw_metar_string, observation_datetime) or (None, None) on failure.
     """
     try:
         now = datetime.now(timezone.utc)
-        # Ogimet needs ano/mes/day (start) < anof/mesf/dayf (end).
-        # We look from yesterday 00Z to now, to catch overnight METARs.
         from datetime import timedelta
         yesterday = now - timedelta(days=1)
         url = (
@@ -114,20 +197,63 @@ def fetch_ogimet_metar(icao: str) -> tuple[str | None, datetime | None]:
             f"&hora=00&anof={now.year}&mesf={now.month:02d}"
             f"&dayf={now.day:02d}&horaf={now.hour:02d}&minf=59&send=send"
         )
-        r = requests.get(url, timeout=10,
-                         headers={"User-Agent": "Mozilla/5.0"})
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         if r.status_code != 200:
             return None, None
         text = BeautifulSoup(r.text, 'html.parser').get_text()
-        pattern = rf"({icao.upper()}\s+[0-9]{{6}}Z[^=\n]*)"
-        match = re.search(pattern, text)
-        if match:
-            raw = match.group(1).strip().rstrip('=')
+        
+        # Regex to find any report starting with ICAO
+        pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
+        matches = re.finditer(pattern, text, re.IGNORECASE)
+        for m in matches:
+            raw = m.group(0).strip().rstrip('=')
+            
+            # Exclude TAF lines (which have validity period e.g. 2218/2400)
+            if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
+                continue
+                
             obs_dt = parse_amss_time(raw)
-            return raw, obs_dt
+            if obs_dt:
+                return raw, obs_dt
     except Exception:
         pass
     return None, None
+
+def fetch_ogimet_taf(icao: str) -> tuple[str | None, datetime | None]:
+    """Tier 1B: Scrape the latest TAF for an Indian station from Ogimet.
+    Returns (raw_taf_string, observation_datetime) or (None, None) on failure.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta
+        yesterday = now - timedelta(days=1)
+        url = (
+            f"https://ogimet.com/display_metars2.php?lang=en&lugar={icao.upper()}"
+            f"&tipo=ALL&ord=REV&nil=SI&fmt=html"
+            f"&ano={yesterday.year}&mes={yesterday.month:02d}&day={yesterday.day:02d}"
+            f"&hora=00&anof={now.year}&mesf={now.month:02d}"
+            f"&dayf={now.day:02d}&horaf={now.hour:02d}&minf=59&send=send"
+        )
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            return None, None
+        text = BeautifulSoup(r.text, 'html.parser').get_text()
+        
+        # Regex to find any report starting with ICAO
+        pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
+        matches = re.finditer(pattern, text, re.IGNORECASE)
+        for m in matches:
+            raw = m.group(0).strip().rstrip('=')
+            
+            # Only match TAF lines (must contain validity period e.g. 2218/2400)
+            if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
+                obs_dt = parse_amss_time(raw)
+                if obs_dt:
+                    return raw, obs_dt
+    except Exception:
+        pass
+    return None, None
+
 
 # ---------- Helper: robust GET with retries ----------
 def safe_get(url: str, *, timeout: int = 3, retries: int = 0) -> Any:
@@ -278,6 +404,11 @@ def get_instant_weather(stations: str) -> str:
             urls[f'noaa_taf_{s}'] = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{s}.TXT"
             urls[f'checkwx_metar_{s}'] = f"https://api.checkwx.com/metar/{s}/decoded"
             urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
+            if s.upper().startswith('V'):
+                urls[f'aai_metar_{s}'] = f"AAI_TRIGGER_{s}"
+                urls[f'aai_taf_{s}'] = f"AAI_TAF_TRIGGER_{s}"
+                urls[f'ogimet_metar_{s}'] = f"OGIMET_METAR_TRIGGER_{s}"
+                urls[f'ogimet_taf_{s}'] = f"OGIMET_TAF_TRIGGER_{s}"
             
         urls['station_info'] = f"https://aviationweather.gov/api/data/stationinfo?ids={clean_stations}"
         
@@ -288,6 +419,18 @@ def get_instant_weather(stations: str) -> str:
             try:
                 if url == 'AMSS_TRIGGER':
                     return name, fetch_all_imd_regional_nodes()
+                elif url.startswith('AAI_TRIGGER_'):
+                    station_code = url.replace('AAI_TRIGGER_', '')
+                    return name, fetch_live_aai_weather(station_code)
+                elif url.startswith('AAI_TAF_TRIGGER_'):
+                    station_code = url.replace('AAI_TAF_TRIGGER_', '')
+                    return name, fetch_aai_taf(station_code)
+                elif url.startswith('OGIMET_METAR_TRIGGER_'):
+                    station_code = url.replace('OGIMET_METAR_TRIGGER_', '')
+                    return name, fetch_ogimet_metar(station_code)
+                elif url.startswith('OGIMET_TAF_TRIGGER_'):
+                    station_code = url.replace('OGIMET_TAF_TRIGGER_', '')
+                    return name, fetch_ogimet_taf(station_code)
                 elif 'aviationweather' in url:
                     return name, safe_get(url, timeout=6, retries=1)
                 elif 'tgftp.nws.noaa.gov' in url:
@@ -447,6 +590,21 @@ def get_instant_weather(stations: str) -> str:
                             except Exception:
                                 pass
                 
+                # Check AAI live weather (Indian stations only) first if stale - Tier 1A
+                if is_stale and station.upper().startswith('V'):
+                    aai_res = results.get(f'aai_metar_{station}')
+                    if aai_res:
+                        aai_metar, aai_dt = aai_res
+                        if aai_metar and aai_dt:
+                            now_dt = datetime.now(timezone.utc)
+                            aai_elapsed = int((now_dt - aai_dt).total_seconds() / 60)
+                            if elapsed_min == 0 or aai_elapsed < elapsed_min:
+                                raw_metar = aai_metar
+                                elapsed_min = aai_elapsed
+                                obs_time = aai_dt.strftime('%Y-%m-%d %H:%M UTC')
+                                is_stale = aai_elapsed > 120
+                                used_avwx = False
+
                 # Check AMSS regional nodes (Indian stations only) if STILL stale
                 if is_stale and station.upper().startswith('V'):
                     amss_raw = results.get('amss_trigger')
@@ -466,16 +624,18 @@ def get_instant_weather(stations: str) -> str:
 
                 # Ogimet Tier 1B: last resort for Indian stations still stale
                 if is_stale and station.upper().startswith('V'):
-                    og_metar, og_dt = fetch_ogimet_metar(station)
-                    if og_metar and og_dt:
-                        now_dt = datetime.now(timezone.utc)
-                        og_elapsed = int((now_dt - og_dt).total_seconds() / 60)
-                        if elapsed_min == 0 or og_elapsed < elapsed_min:
-                            raw_metar = og_metar
-                            elapsed_min = og_elapsed
-                            obs_time = og_dt.strftime('%Y-%m-%d %H:%M UTC')
-                            is_stale = og_elapsed > 120
-                            used_avwx = False
+                    og_res = results.get(f'ogimet_metar_{station}')
+                    if og_res:
+                        og_metar, og_dt = og_res
+                        if og_metar and og_dt:
+                            now_dt = datetime.now(timezone.utc)
+                            og_elapsed = int((now_dt - og_dt).total_seconds() / 60)
+                            if elapsed_min == 0 or og_elapsed < elapsed_min:
+                                raw_metar = og_metar
+                                elapsed_min = og_elapsed
+                                obs_time = og_dt.strftime('%Y-%m-%d %H:%M UTC')
+                                is_stale = og_elapsed > 120
+                                used_avwx = False
                                 
                 # Check CheckWX if STILL stale
                 if is_stale:
@@ -581,8 +741,18 @@ def get_instant_weather(stations: str) -> str:
                 # Use pre-fetched NOAA METAR as fallback (already fetched in parallel above)
                 raw_metar = None
                 obs_dt = None
-                # AMSS Delhi is Tier 1A for Indian stations
+                
+                # Check AAI live weather first (Indian stations only) - Tier 1A
                 if station.upper().startswith('V'):
+                    aai_res = results.get(f'aai_metar_{station}')
+                    if aai_res:
+                        aai_metar, aai_dt = aai_res
+                        if aai_metar and aai_dt:
+                            obs_dt = aai_dt
+                            raw_metar = aai_metar
+                            
+                # AMSS Delhi is Tier 1A for Indian stations
+                if not raw_metar and station.upper().startswith('V'):
                     amss_raw = results.get('amss_trigger')
                     if amss_raw:
                         amss_metar = parse_amss_metar(amss_raw, station)
@@ -628,10 +798,12 @@ def get_instant_weather(stations: str) -> str:
 
                 # Ogimet Tier 1B: last resort for Indian stations
                 if not raw_metar and station.upper().startswith('V'):
-                    og_metar, og_dt = fetch_ogimet_metar(station)
-                    if og_metar:
-                        raw_metar = og_metar
-                        obs_dt = og_dt
+                    og_res = results.get(f'ogimet_metar_{station}')
+                    if og_res:
+                        og_metar, og_dt = og_res
+                        if og_metar:
+                            raw_metar = og_metar
+                            obs_dt = og_dt
                     
                 if raw_metar:
                     elapsed_str = ""
@@ -711,6 +883,34 @@ def get_instant_weather(stations: str) -> str:
                         except Exception:
                             pass
                 
+                # Try AAI TAF (Tier 1A - Domestic Stream)
+                if not raw_taf and station.upper().startswith('V'):
+                    aai_taf_res = results.get(f'aai_taf_{station}')
+                    if aai_taf_res:
+                        a_taf, a_dt = aai_taf_res
+                        if a_taf:
+                            raw_taf = a_taf.strip()
+                            while raw_taf.upper().startswith('TAF'):
+                                raw_taf = raw_taf[3:].strip()
+                            if a_dt:
+                                issue_time_formatted = a_dt.strftime('%Y-%m-%d %H:%M UTC')
+                            else:
+                                issue_time_formatted = "N/A"
+
+                # Try Ogimet TAF fallback (Tier 1B)
+                if not raw_taf and station.upper().startswith('V'):
+                    og_taf_res = results.get(f'ogimet_taf_{station}')
+                    if og_taf_res:
+                        o_taf, o_dt = og_taf_res
+                        if o_taf:
+                            raw_taf = o_taf.strip()
+                            while raw_taf.upper().startswith('TAF'):
+                                raw_taf = raw_taf[3:].strip()
+                            if o_dt:
+                                issue_time_formatted = o_dt.strftime('%Y-%m-%d %H:%M UTC')
+                            else:
+                                issue_time_formatted = "N/A"
+                
                 if raw_taf:
                     result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
                 else:
@@ -739,6 +939,93 @@ def get_instant_weather(stations: str) -> str:
     except Exception as e:
         return f"Error fetching weather data: {str(e)}"
 
+def parse_raw_metar_to_dict(metar: str) -> dict:
+    """Helper to parse a raw METAR string into a decoded dictionary block for visual grid display."""
+    model = {
+        "temp": "N/A",
+        "dew": "N/A",
+        "windDir": 0,
+        "windSpeed": 0,
+        "windStr": "N/A",
+        "visibility": "N/A",
+        "clouds": "CAVOK",
+        "weather": "CAVOK",
+        "altimeter": "N/A"
+    }
+    
+    # 1. Wind: e.g. 22010KT or VRB02KT
+    wind_match = re.search(r'\b([0-9]{3}|VRB)([0-9]{2})(?:G([0-9]{2}))?KT\b', metar)
+    if wind_match:
+        wdir_str = wind_match.group(1)
+        wspd = int(wind_match.group(2))
+        wgst = wind_match.group(3)
+        wdir = 0 if wdir_str == "VRB" else int(wdir_str)
+        model["windDir"] = wdir
+        model["windSpeed"] = wspd
+        wind_str = f"{wdir_str}° / {wspd}"
+        if wgst:
+            wind_str += f"G{wgst}"
+        wind_str += " KT"
+        model["windStr"] = wind_str
+        
+    # 2. Visibility: e.g. 6000 or 9999 or 10SM
+    vis_match = re.search(r'\b([0-9]{4})\b', metar)
+    if vis_match:
+        vis_val = int(vis_match.group(1))
+        if vis_val == 9999:
+            model["visibility"] = "10+ Kms"
+        else:
+            model["visibility"] = f"{vis_val}m"
+    else:
+        vis_sm_match = re.search(r'\b([0-9]+)SM\b', metar)
+        if vis_sm_match:
+            model["visibility"] = f"{vis_sm_match.group(1)} SM"
+            
+    # 3. Temperature/Dewpoint: e.g. 32/25 or M02/M05
+    temp_match = re.search(r'\b(M?[0-9]{2})/(M?[0-9]{2})\b', metar)
+    if temp_match:
+        def convert_temp(t_str):
+            val = t_str.replace('M', '-')
+            return f"{int(val)}°C"
+        model["temp"] = convert_temp(temp_match.group(1))
+        model["dew"] = convert_temp(temp_match.group(2))
+        
+    # 4. Altimeter: e.g. Q1009 or A2992
+    alt_match = re.search(r'\bQ([0-9]{4})\b', metar)
+    if alt_match:
+        model["altimeter"] = f"Q{alt_match.group(1)} hPa"
+    else:
+        alt_a_match = re.search(r'\bA([0-9]{4})\b', metar)
+        if alt_a_match:
+            try:
+                inhg = float(alt_a_match.group(1)) / 100.0
+                hpa = int(round(inhg * 33.8639))
+                model["altimeter"] = f"Q{hpa} hPa"
+            except:
+                pass
+                
+    # 5. Clouds
+    cloud_groups = re.findall(r'\b(FEW|SCT|BKN|OVC|CLR|SKC|NSC|CAVOK)([0-9]{3})?\b', metar)
+    if cloud_groups:
+        cloud_strs = []
+        for cvr, base in cloud_groups:
+            if cvr in ["CLR", "SKC", "NSC", "CAVOK"]:
+                continue
+            base_str = base if base else ""
+            cloud_strs.append(f"{cvr}{base_str}")
+        if cloud_strs:
+            model["clouds"] = " ".join(cloud_strs)
+            
+    # 6. Weather
+    if "NOSIG" in metar:
+        model["weather"] = "NOSIG"
+    else:
+        wx_match = re.search(r'\b(-|\+|VC)?(TS|SH|DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)+\b', metar)
+        if wx_match:
+            model["weather"] = wx_match.group(0)
+            
+    return model
+
 def get_station_details(station: str) -> dict:
     """Fetches detailed structural JSON for the visual station grid and history."""
     station = station.strip().upper()
@@ -761,42 +1048,116 @@ def get_station_details(station: str) -> dict:
         if info_data and isinstance(info_data, list) and len(info_data) > 0:
             station_name = info_data[0].get('site', 'Unknown Station')
             
-        if not data and station.startswith('V'):
-            amss_raw = fetch_all_imd_regional_nodes()
-            if amss_raw:
-                amss_metar = parse_amss_metar(amss_raw, station)
-                if amss_metar:
-                    try:
-                        from datetime import datetime, timezone
-                        now_dt = datetime.now(timezone.utc)
-                        day = int(amss_metar[5:7])
-                        hour = int(amss_metar[7:9])
-                        minute = int(amss_metar[9:11])
-                        obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-                        if obs_dt > now_dt:
-                            if now_dt.month == 1: obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
-                            else: obs_dt = obs_dt.replace(month=now_dt.month - 1)
-                            
-                        return {
-                            "icao": station,
-                            "name": station_name,
-                            "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
-                            "model": {
-                                "temp": "N/A",
-                                "dew": "N/A",
-                                "windDir": 0,
-                                "windSpeed": 0,
-                                "windStr": "N/A (Raw Feed Only)",
-                                "visibility": "N/A",
-                                "clouds": "N/A",
-                                "weather": "AMSS Delhi Domestic",
-                                "altimeter": "N/A"
-                            },
-                            "history": [amss_metar]
-                        }
-                    except Exception:
-                        pass
-                        
+        # Determine if AviationWeather data is empty or stale (older than 2 hours)
+        is_stale = True
+        if data:
+            data.sort(key=lambda x: x.get('obsTime', 0), reverse=True)
+            latest = data[0]
+            obs_time_raw = latest.get('obsTime')
+            if isinstance(obs_time_raw, int):
+                obs_dt = datetime.fromtimestamp(obs_time_raw, tz=timezone.utc)
+                now_dt = datetime.now(timezone.utc)
+                if (now_dt - obs_dt).total_seconds() <= 7200:
+                    is_stale = False
+            elif obs_time_raw:
+                try:
+                    obs_dt = datetime.fromisoformat(str(obs_time_raw).replace('Z', '+00:00'))
+                    now_dt = datetime.now(timezone.utc)
+                    if (now_dt - obs_dt).total_seconds() <= 7200:
+                        is_stale = False
+                except:
+                    pass
+
+        # Indian military/civil airfields fallback flow
+        if is_stale and station.startswith('V'):
+            # 1. Try AAI Live Portal (Tier 1A - Domestic Stream)
+            try:
+                aai_metar, aai_dt = fetch_live_aai_weather(station)
+                if aai_metar and aai_dt:
+                    model_data = parse_raw_metar_to_dict(aai_metar)
+                    model_data["weather"] = f"{model_data['weather']} (AAI Portal)"
+                    return {
+                        "icao": station,
+                        "name": station_name,
+                        "time": aai_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                        "model": model_data,
+                        "history": [aai_metar]
+                    }
+            except Exception:
+                pass
+
+            # 2. Try AMSS Regional Nodes
+            try:
+                amss_raw = fetch_all_imd_regional_nodes()
+                if amss_raw:
+                    amss_metar = parse_amss_metar(amss_raw, station)
+                    if amss_metar:
+                        obs_dt = parse_amss_time(amss_metar)
+                        if obs_dt:
+                            model_data = parse_raw_metar_to_dict(amss_metar)
+                            model_data["weather"] = f"{model_data['weather']} (AMSS)"
+                            return {
+                                "icao": station,
+                                "name": station_name,
+                                "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                                "model": model_data,
+                                "history": [amss_metar]
+                            }
+            except Exception:
+                pass
+
+            # 3. Try Ogimet METAR Fallback (Handles VOGO)
+            try:
+                og_metar, og_dt = fetch_ogimet_metar(station)
+                if og_metar and og_dt:
+                    model_data = parse_raw_metar_to_dict(og_metar)
+                    model_data["weather"] = f"{model_data['weather']} (Ogimet)"
+                    return {
+                        "icao": station,
+                        "name": station_name,
+                        "time": og_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                        "model": model_data,
+                        "history": [og_metar]
+                    }
+            except Exception:
+                pass
+
+            # 3.5. Try AAI TAF Fallback (Tier 1A - Domestic Stream TAF)
+            try:
+                aai_taf, aai_dt = fetch_aai_taf(station)
+                if aai_taf and aai_dt:
+                    # Clean validity period (e.g. 2218/2400) to prevent visibility/wind parsing corruption
+                    cleaned_taf = re.sub(r'\b[0-9]{4}/[0-9]{4}\b', '', aai_taf).strip()
+                    model_data = parse_raw_metar_to_dict(cleaned_taf)
+                    model_data["weather"] = f"{model_data['weather']} (AAI TAF Fallback)"
+                    return {
+                        "icao": station,
+                        "name": station_name,
+                        "time": aai_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                        "model": model_data,
+                        "history": [aai_taf]
+                    }
+            except Exception:
+                pass
+
+            # 4. Try Ogimet TAF Fallback (Handles VAPO and stations with only TAFs)
+            try:
+                og_taf, og_dt = fetch_ogimet_taf(station)
+                if og_taf and og_dt:
+                    # Clean validity period (e.g. 2218/2400) to prevent visibility/wind parsing corruption
+                    cleaned_taf = re.sub(r'\b[0-9]{4}/[0-9]{4}\b', '', og_taf).strip()
+                    model_data = parse_raw_metar_to_dict(cleaned_taf)
+                    model_data["weather"] = f"{model_data['weather']} (Ogimet TAF Fallback)"
+                    return {
+                        "icao": station,
+                        "name": station_name,
+                        "time": og_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                        "model": model_data,
+                        "history": [og_taf]
+                    }
+            except Exception:
+                pass
+                
         if not data:
             cwx_api_key = os.environ.get('CHECKWX_API_KEY')
             if cwx_api_key:
