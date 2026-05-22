@@ -2,6 +2,10 @@ import requests, time
 from datetime import datetime, timezone
 from typing import Dict, Any
 import concurrent.futures
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------- Helper: robust GET with retries ----------
 def safe_get(url: str, *, timeout: int = 3, retries: int = 0) -> Any:
@@ -149,6 +153,7 @@ def get_instant_weather(stations: str) -> str:
             urls[f'atis_{s}'] = f"https://datis.clowd.io/api/{s}"
             urls[f'noaa_metar_{s}'] = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{s}.TXT"
             urls[f'noaa_taf_{s}'] = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{s}.TXT"
+            urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
             
         def fetch_url(name, url):
             try:
@@ -159,6 +164,13 @@ def get_instant_weather(stations: str) -> str:
                     resp = requests.get(url, timeout=4)
                     if resp.status_code == 200:
                         return name, resp.text
+                    return name, None
+                elif 'avwx.rest' in url:
+                    api_key = os.environ.get('AVWX_API_KEY')
+                    if not api_key: return name, None
+                    resp = requests.get(url, headers={'Authorization': f'Token {api_key}'}, timeout=5)
+                    if resp.status_code == 200:
+                        return name, resp.json()
                     return name, None
                 else:
                     # D-ATIS requests
@@ -246,6 +258,7 @@ def get_instant_weather(stations: str) -> str:
                 
                 # Check if stale (older than 2 hours)
                 is_stale = False
+                used_avwx = False
                 elapsed_min = 0
                 if obs_time_raw != 'N/A':
                     try:
@@ -272,16 +285,48 @@ def get_instant_weather(stations: str) -> str:
                                     is_stale = False
                             except Exception:
                                 pass
-                flt_cat = m.get('fltCat', 'N/A')
-                wdir = m.get('wdir', 'VRB' if m.get('wdir') == 0 else m.get('wdir', 'N/A'))
-                wspd = m.get('wspd', 'N/A')
-                vis = m.get('visib', 'N/A')
-                vis_formatted = format_visibility(vis, station)
-                clouds = m.get('clouds', [])
-                wx = m.get('wxString', '')
-                temp = m.get('temp', 'N/A')
-                dewp = m.get('dewp', 'N/A')
-                altim = m.get('altim', 'N/A')
+                                
+                # Check AVWX if STILL stale
+                if is_stale:
+                    avwx_data = results.get(f'avwx_metar_{station}')
+                    if avwx_data and 'raw' in avwx_data and 'time' in avwx_data:
+                        try:
+                            obs_dt = datetime.fromisoformat(avwx_data['time']['dt'].replace('Z', '+00:00'))
+                            now_dt = datetime.now(timezone.utc)
+                            if (now_dt - obs_dt).total_seconds() <= 7200:
+                                raw_metar = avwx_data['raw']
+                                is_stale = False
+                                elapsed_min = int((now_dt - obs_dt).total_seconds() / 60)
+                                obs_time = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+                                
+                                # Update parsed fields from AVWX to prevent mixing
+                                used_avwx = True
+                                wdir = avwx_data.get('wind_direction', {}).get('value', 'VRB')
+                                if wdir is None: wdir = 'VRB'
+                                wspd = avwx_data.get('wind_speed', {}).get('value', 0)
+                                vis = avwx_data.get('visibility', {}).get('value', 'N/A')
+                                temp = avwx_data.get('temperature', {}).get('value', 'N/A')
+                                dewp = avwx_data.get('dewpoint', {}).get('value', 'N/A')
+                                altim = avwx_data.get('altimeter', {}).get('value', 'N/A')
+                                altim = f"Q{altim}" if altim != 'N/A' else 'N/A'
+                                vis_formatted = format_visibility(vis, station)
+                                flt_cat = avwx_data.get('flight_rules', 'N/A')
+                                clouds = []
+                                wx = ""
+                        except Exception:
+                            pass
+                
+                if not used_avwx:
+                    flt_cat = m.get('fltCat', 'N/A')
+                    wdir = m.get('wdir', 'VRB' if m.get('wdir') == 0 else m.get('wdir', 'N/A'))
+                    wspd = m.get('wspd', 'N/A')
+                    vis = m.get('visib', 'N/A')
+                    vis_formatted = format_visibility(vis, station)
+                    clouds = m.get('clouds', [])
+                    wx = m.get('wxString', '')
+                    temp = m.get('temp', 'N/A')
+                    dewp = m.get('dewp', 'N/A')
+                    altim = m.get('altim', 'N/A')
 
                 cloud_str = decode_clouds(clouds)
                 wx_str = decode_wx(wx)
@@ -321,6 +366,18 @@ def get_instant_weather(stations: str) -> str:
                             now_dt = datetime.now(timezone.utc)
                             if (now_dt - noaa_dt).total_seconds() <= 3600 * 2: # Max 2 hours for fallback
                                 raw_metar = lines[1]
+                        except Exception:
+                            pass
+                
+                # Check AVWX if NOAA failed
+                if not raw_metar:
+                    avwx_data = results.get(f'avwx_metar_{station}')
+                    if avwx_data and 'raw' in avwx_data and 'time' in avwx_data:
+                        try:
+                            obs_dt = datetime.fromisoformat(avwx_data['time']['dt'].replace('Z', '+00:00'))
+                            now_dt = datetime.now(timezone.utc)
+                            if (now_dt - obs_dt).total_seconds() <= 7200:
+                                raw_metar = avwx_data['raw']
                         except Exception:
                             pass
                     
@@ -428,6 +485,60 @@ def get_station_details(station: str) -> dict:
             station_name = info_data[0].get('site', 'Unknown Station')
             
         if not data:
+            avwx_api_key = os.environ.get('AVWX_API_KEY')
+            if avwx_api_key:
+                try:
+                    avwx_url = f"https://avwx.rest/api/metar/{station}"
+                    avwx_resp = requests.get(avwx_url, headers={'Authorization': f'Token {avwx_api_key}'}, timeout=5)
+                    if avwx_resp.status_code == 200:
+                        a_data = avwx_resp.json()
+                        obs_dt = datetime.fromisoformat(a_data['time']['dt'].replace('Z', '+00:00'))
+                        now_dt = datetime.now(timezone.utc)
+                        # Check freshness
+                        if (now_dt - obs_dt).total_seconds() <= 7200:
+                            t_val = a_data.get('temperature', {}).get('value', 'N/A')
+                            d_val = a_data.get('dewpoint', {}).get('value', 'N/A')
+                            wdir = a_data.get('wind_direction', {}).get('value')
+                            wspd = a_data.get('wind_speed', {}).get('value', 0)
+                            if wdir is None: wdir = 0
+                            
+                            vis_val = a_data.get('visibility', {}).get('value', 'N/A')
+                            if vis_val != 'N/A':
+                                try:
+                                    vis_m = float(vis_val)
+                                    vis_str = "10+ Kms" if vis_m >= 9999 else f"{int(vis_m)}m"
+                                except:
+                                    vis_str = str(vis_val)
+                            else:
+                                vis_str = "N/A"
+                                
+                            qnh_val = a_data.get('altimeter', {}).get('value', 'N/A')
+                            qnh_str = f"Q{qnh_val} hPa" if qnh_val != 'N/A' else "N/A"
+                            
+                            cloud_full = "CAVOK"
+                            if a_data.get('clouds'):
+                                cloud_full = " ".join([f"{c['type']}{str(c['altitude']).zfill(3)}" for c in a_data['clouds'] if 'altitude' in c])
+                                
+                            return {
+                                "icao": station,
+                                "name": station_name,
+                                "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                                "model": {
+                                    "temp": f"{t_val}°C" if t_val != 'N/A' else "N/A",
+                                    "dew": f"{d_val}°C" if d_val != 'N/A' else "N/A",
+                                    "windDir": wdir,
+                                    "windSpeed": wspd,
+                                    "windStr": f"{wdir}° / {wspd} KT (AVWX)",
+                                    "visibility": vis_str,
+                                    "clouds": cloud_full,
+                                    "weather": "AVWX Fallback",
+                                    "altimeter": qnh_str
+                                },
+                                "history": [a_data.get('raw', '')]
+                            }
+                except Exception:
+                    pass
+
             return {
                 "icao": station,
                 "name": station_name,
