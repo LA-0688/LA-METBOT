@@ -49,11 +49,17 @@ def fetch_all_imd_regional_nodes() -> str:
             pass
         return ""
         
+    global _imd_node_cache
+    cached_text, cached_ts = _imd_node_cache
+    if cached_text and (time.time() - cached_ts) < 300:  # 5-minute TTL
+        return cached_text
+
     combined_text = ""
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         for text in executor.map(_fetch, urls):
             if text:
                 combined_text += text
+    _imd_node_cache = (combined_text, time.time())
     return combined_text
 
 def parse_amss_metar(raw_text: str, icao: str) -> str:
@@ -64,6 +70,60 @@ def parse_amss_metar(raw_text: str, icao: str) -> str:
     if match:
         return f"{match.group(1)} {match.group(2)}".strip().rstrip("=")
     return None
+
+def parse_amss_time(metar_str: str) -> datetime | None:
+    """Robustly parse the day/hour/minute timestamp from an AMSS METAR string.
+    Returns a UTC datetime or None on any failure.
+    """
+    try:
+        # Find the 6-digit timestamp group (DDHHMMZ) anywhere in the string
+        m = re.search(r'\b([0-9]{6})Z\b', metar_str)
+        if not m:
+            return None
+        ts = m.group(1)
+        day = int(ts[0:2])
+        hour = int(ts[2:4])
+        minute = int(ts[4:6])
+        if not (1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+        now_dt = datetime.now(timezone.utc)
+        obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+        if obs_dt > now_dt:  # rolled over month boundary
+            if now_dt.month == 1:
+                obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
+            else:
+                obs_dt = obs_dt.replace(month=now_dt.month - 1)
+        return obs_dt
+    except Exception:
+        return None
+
+def fetch_ogimet_metar(icao: str) -> tuple[str | None, datetime | None]:
+    """Tier 1B: Scrape the latest METAR for an Indian station from Ogimet.
+    Returns (raw_metar_string, observation_datetime) or (None, None) on failure.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        url = (
+            f"https://ogimet.com/display_metars2.php?lang=en&lugar={icao.upper()}"
+            f"&tipo=ALL&ord=REV&nil=SI&fmt=html"
+            f"&ano={now.year}&mes={now.month:02d}&day={now.day:02d}"
+            f"&hora={now.hour:02d}&anof={now.year}&mesf={now.month:02d}"
+            f"&dayf={now.day:02d}&horaf=00&minf=00&send=send"
+        )
+        r = requests.get(url, timeout=10,
+                         headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            return None, None
+        text = BeautifulSoup(r.text, 'html.parser').get_text()
+        pattern = rf"({icao.upper()}\s+[0-9]{{6}}Z[^=\n]*)"
+        match = re.search(pattern, text)
+        if match:
+            raw = match.group(1).strip().rstrip('=')
+            obs_dt = parse_amss_time(raw)
+            return raw, obs_dt
+    except Exception:
+        pass
+    return None, None
 
 # ---------- Helper: robust GET with retries ----------
 def safe_get(url: str, *, timeout: int = 3, retries: int = 0) -> Any:
@@ -85,10 +145,11 @@ KNOWN_STATIONS = {
     'VANM': {'name': 'Navi Mumbai International Airport', 'lat': 18.99, 'lon': 73.06}
 }
 
-# ---------- In-memory cache (1-minute TTL) ----------
+# ---------- In-memory caches ----------
 weather_cache: Dict[str, tuple[str, float]] = {}
 sun_cache: Dict[str, tuple[Dict[str, str], float]] = {}
-CACHE_TTL = 60 
+_imd_node_cache: tuple[str, float] = ("", 0.0)  # (text, timestamp)
+CACHE_TTL = 60
 
 def get_sun_times(lat, lon):
     """Fetch sunrise and sunset times for given coordinates."""
@@ -382,34 +443,35 @@ def get_instant_weather(stations: str) -> str:
                             except Exception:
                                 pass
                 
-                # Check AMSS Delhi (Indian Stations Only) if STILL stale
+                # Check AMSS regional nodes (Indian stations only) if STILL stale
                 if is_stale and station.upper().startswith('V'):
                     amss_raw = results.get('amss_trigger')
                     if amss_raw:
                         amss_metar = parse_amss_metar(amss_raw, station)
                         if amss_metar:
-                            try:
-                                # AMSS only gives day/hour/minute "221500Z", we have to guess the month/year based on now
+                            obs_dt = parse_amss_time(amss_metar)
+                            if obs_dt:
                                 now_dt = datetime.now(timezone.utc)
-                                day = int(amss_metar[5:7]) # from "VAPO 221500Z"
-                                hour = int(amss_metar[7:9])
-                                minute = int(amss_metar[9:11])
-                                obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-                                if obs_dt > now_dt: # if it rolled over the month
-                                    if now_dt.month == 1:
-                                        obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
-                                    else:
-                                        obs_dt = obs_dt.replace(month=now_dt.month - 1)
-                                
                                 a_elapsed = int((now_dt - obs_dt).total_seconds() / 60)
                                 if elapsed_min == 0 or a_elapsed < elapsed_min:
                                     raw_metar = amss_metar
                                     elapsed_min = a_elapsed
                                     obs_time = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
                                     is_stale = elapsed_min > 120
-                                    used_avwx = False # No parsed data provided, fallback to raw rendering only
-                            except Exception:
-                                pass
+                                    used_avwx = False
+
+                # Ogimet Tier 1B: last resort for Indian stations still stale
+                if is_stale and station.upper().startswith('V'):
+                    og_metar, og_dt = fetch_ogimet_metar(station)
+                    if og_metar and og_dt:
+                        now_dt = datetime.now(timezone.utc)
+                        og_elapsed = int((now_dt - og_dt).total_seconds() / 60)
+                        if elapsed_min == 0 or og_elapsed < elapsed_min:
+                            raw_metar = og_metar
+                            elapsed_min = og_elapsed
+                            obs_time = og_dt.strftime('%Y-%m-%d %H:%M UTC')
+                            is_stale = og_elapsed > 120
+                            used_avwx = False
                                 
                 # Check CheckWX if STILL stale
                 if is_stale:
@@ -521,19 +583,10 @@ def get_instant_weather(stations: str) -> str:
                     if amss_raw:
                         amss_metar = parse_amss_metar(amss_raw, station)
                         if amss_metar:
-                            try:
-                                now_dt = datetime.now(timezone.utc)
-                                day = int(amss_metar[5:7])
-                                hour = int(amss_metar[7:9])
-                                minute = int(amss_metar[9:11])
-                                amss_obs = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-                                if amss_obs > now_dt:
-                                    if now_dt.month == 1: amss_obs = amss_obs.replace(year=now_dt.year - 1, month=12)
-                                    else: amss_obs = amss_obs.replace(month=now_dt.month - 1)
+                            amss_obs = parse_amss_time(amss_metar)
+                            if amss_obs:
                                 obs_dt = amss_obs
                                 raw_metar = amss_metar
-                            except Exception:
-                                pass
                 
                 # Check NOAA if AMSS failed
                 if not raw_metar:
@@ -568,6 +621,13 @@ def get_instant_weather(stations: str) -> str:
                             raw_metar = avwx_data['raw']
                         except Exception:
                             pass
+
+                # Ogimet Tier 1B: last resort for Indian stations
+                if not raw_metar and station.upper().startswith('V'):
+                    og_metar, og_dt = fetch_ogimet_metar(station)
+                    if og_metar:
+                        raw_metar = og_metar
+                        obs_dt = og_dt
                     
                 if raw_metar:
                     elapsed_str = ""
