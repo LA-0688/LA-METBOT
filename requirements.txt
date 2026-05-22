@@ -3,3 +3,4 @@ pyTelegramBotAPI
 python-dotenv
 flask
 gunicorn
+beautifulsoup4
