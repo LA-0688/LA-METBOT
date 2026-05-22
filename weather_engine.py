@@ -26,15 +26,19 @@ load_dotenv()
 # ---------- Helper: AMSS Delhi Scraper ----------
 def fetch_amss_delhi() -> str:
     """Fetches the raw AMSS feed and bypasses SSL restrictions."""
-    url = "https://amssdelhi.gov.in/Palam1.php"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         session = requests.Session()
         session.mount('https://', CustomAdapter())
-        resp = session.get(url, headers=headers, verify=False, timeout=12)
-        resp.raise_for_status()
-        text = BeautifulSoup(resp.text, 'html.parser').get_text()
-        return text
+        combined_text = ""
+        for page in ['Palam1.php', 'Palam2.php', 'Palam3.php', 'Palam4.php', 'Palam5.php']:
+            try:
+                resp = session.get(f"https://amssdelhi.gov.in/{page}", headers=headers, verify=False, timeout=8)
+                if resp.status_code == 200:
+                    combined_text += BeautifulSoup(resp.text, 'html.parser').get_text() + "\n"
+            except Exception:
+                pass
+        return combined_text
     except Exception as e:
         print(f"AMSS Error: {e}")
         return ""
@@ -197,6 +201,8 @@ def get_instant_weather(stations: str) -> str:
             urls[f'checkwx_metar_{s}'] = f"https://api.checkwx.com/metar/{s}/decoded"
             urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
             
+        urls['station_info'] = f"https://aviationweather.gov/api/data/stationinfo?ids={clean_stations}"
+        
         if any(s.upper().startswith('V') for s in stations_list):
             urls['amss_trigger'] = 'AMSS_TRIGGER'
             
@@ -254,6 +260,12 @@ def get_instant_weather(stations: str) -> str:
         if isinstance(taf_response, list):
             for t in taf_response:
                 tafs_by_station[t.get('icaoId', 'Unknown')] = t
+                
+        station_info_response = results.get('station_info') or []
+        station_info_by_icao = {}
+        if isinstance(station_info_response, list):
+            for info in station_info_response:
+                station_info_by_icao[info.get('id', 'Unknown')] = info
         
         # Pre-fetch sun times in parallel for all stations that have coordinates
         # We pass lat/lon from METAR data; sun_cache handles repeat lookups
@@ -268,6 +280,9 @@ def get_instant_weather(stations: str) -> str:
                 if m_tmp:
                     lat_tmp = m_tmp.get('lat', lat_tmp)
                     lon_tmp = m_tmp.get('lon', lon_tmp)
+                elif station in station_info_by_icao:
+                    lat_tmp = station_info_by_icao[station].get('lat', lat_tmp)
+                    lon_tmp = station_info_by_icao[station].get('lon', lon_tmp)
                 if lat_tmp is not None and lon_tmp is not None:
                     sun_futures[station] = sun_executor.submit(get_sun_times, lat_tmp, lon_tmp)
             # Collect results
@@ -290,6 +305,11 @@ def get_instant_weather(stations: str) -> str:
                 name = m.get('name', name) # Keep fallback name if API returns empty
                 lat = m.get('lat', lat)
                 lon = m.get('lon', lon)
+            elif station in station_info_by_icao:
+                info = station_info_by_icao[station]
+                name = info.get('site', name)
+                lat = info.get('lat', lat)
+                lon = info.get('lon', lon)
                 
             if lat is not None and lon is not None:
                 lat_dir = 'N' if lat >= 0 else 'S'
