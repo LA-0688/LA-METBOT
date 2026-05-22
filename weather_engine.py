@@ -46,7 +46,7 @@ def fetch_amss_delhi() -> str:
 def parse_amss_metar(raw_text: str, icao: str) -> str:
     if not raw_text or not icao.upper().startswith('V'):
         return None
-    pattern = rf"(?:^|\n).*?({icao.upper()})\s+([0-9]{{6}}Z.*?)(?=\n|$)"
+    pattern = rf"({icao.upper()})\s+([0-9]{{6}}Z[^=]*=?)"
     match = re.search(pattern, raw_text, re.IGNORECASE)
     if match:
         return f"{match.group(1)} {match.group(2)}".strip().rstrip("=")
