@@ -3,9 +3,50 @@ from datetime import datetime, timezone
 from typing import Dict, Any
 import concurrent.futures
 import os
+import re
+import urllib3
+import ssl
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+class CustomAdapter(requests.adapters.HTTPAdapter):
+    """Custom adapter to bypass DH_KEY_TOO_SMALL errors on older government servers."""
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs['ssl_context'] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
 load_dotenv()
+
+# ---------- Helper: AMSS Delhi Scraper ----------
+def fetch_amss_delhi() -> str:
+    """Fetches the raw AMSS feed and bypasses SSL restrictions."""
+    url = "https://amssdelhi.gov.in/Palam1.php"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        session = requests.Session()
+        session.mount('https://', CustomAdapter())
+        resp = session.get(url, headers=headers, verify=False, timeout=12)
+        resp.raise_for_status()
+        text = BeautifulSoup(resp.text, 'html.parser').get_text()
+        return text
+    except Exception as e:
+        print(f"AMSS Error: {e}")
+        return ""
+
+def parse_amss_metar(raw_text: str, icao: str) -> str:
+    if not raw_text or not icao.upper().startswith('V'):
+        return None
+    pattern = rf"(?:^|\n).*?({icao.upper()})\s+([0-9]{{6}}Z.*?)(?=\n|$)"
+    match = re.search(pattern, raw_text, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)} {match.group(2)}".strip().rstrip("=")
+    return None
 
 # ---------- Helper: robust GET with retries ----------
 def safe_get(url: str, *, timeout: int = 3, retries: int = 0) -> Any:
@@ -156,9 +197,14 @@ def get_instant_weather(stations: str) -> str:
             urls[f'checkwx_metar_{s}'] = f"https://api.checkwx.com/metar/{s}/decoded"
             urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
             
+        if any(s.upper().startswith('V') for s in stations_list):
+            urls['amss_trigger'] = 'AMSS_TRIGGER'
+            
         def fetch_url(name, url):
             try:
-                if 'aviationweather' in url:
+                if url == 'AMSS_TRIGGER':
+                    return name, fetch_amss_delhi()
+                elif 'aviationweather' in url:
                     return name, safe_get(url, timeout=6, retries=1)
                 elif 'tgftp.nws.noaa.gov' in url:
                     # NOAA plain-text endpoints
@@ -299,8 +345,36 @@ def get_instant_weather(stations: str) -> str:
                                 noaa_dt = datetime.strptime(noaa_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
                                 now_dt = datetime.now(timezone.utc)
                                 if (now_dt - noaa_dt).total_seconds() <= 7200: # Max 2 hours for fallback
-                                    raw_metar = lines[1]
                                     is_stale = False
+                            except Exception:
+                                pass
+                
+                # Check AMSS Delhi (Indian Stations Only) if STILL stale
+                if is_stale and station.upper().startswith('V'):
+                    amss_raw = results.get('amss_trigger')
+                    if amss_raw:
+                        amss_metar = parse_amss_metar(amss_raw, station)
+                        if amss_metar:
+                            try:
+                                # AMSS only gives day/hour/minute "221500Z", we have to guess the month/year based on now
+                                now_dt = datetime.now(timezone.utc)
+                                day = int(amss_metar[5:7]) # from "VAPO 221500Z"
+                                hour = int(amss_metar[7:9])
+                                minute = int(amss_metar[9:11])
+                                obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+                                if obs_dt > now_dt: # if it rolled over the month
+                                    if now_dt.month == 1:
+                                        obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
+                                    else:
+                                        obs_dt = obs_dt.replace(month=now_dt.month - 1)
+                                
+                                a_elapsed = int((now_dt - obs_dt).total_seconds() / 60)
+                                if elapsed_min == 0 or a_elapsed < elapsed_min:
+                                    raw_metar = amss_metar
+                                    elapsed_min = a_elapsed
+                                    obs_time = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+                                    is_stale = elapsed_min > 120
+                                    used_avwx = False # No parsed data provided, fallback to raw rendering only
                             except Exception:
                                 pass
                                 
@@ -408,18 +482,40 @@ def get_instant_weather(stations: str) -> str:
                 # Use pre-fetched NOAA METAR as fallback (already fetched in parallel above)
                 raw_metar = None
                 obs_dt = None
-                noaa_text = results.get(f'noaa_metar_{station}')
-                if noaa_text:
-                    lines = noaa_text.strip().split('\n')
-                    if len(lines) >= 2:
-                        noaa_time_str = lines[0].strip()
-                        try:
-                            obs_dt = datetime.strptime(noaa_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
-                            raw_metar = lines[1]
-                        except Exception:
-                            pass
+                # AMSS Delhi is Tier 1A for Indian stations
+                if station.upper().startswith('V'):
+                    amss_raw = results.get('amss_trigger')
+                    if amss_raw:
+                        amss_metar = parse_amss_metar(amss_raw, station)
+                        if amss_metar:
+                            try:
+                                now_dt = datetime.now(timezone.utc)
+                                day = int(amss_metar[5:7])
+                                hour = int(amss_metar[7:9])
+                                minute = int(amss_metar[9:11])
+                                amss_obs = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+                                if amss_obs > now_dt:
+                                    if now_dt.month == 1: amss_obs = amss_obs.replace(year=now_dt.year - 1, month=12)
+                                    else: amss_obs = amss_obs.replace(month=now_dt.month - 1)
+                                obs_dt = amss_obs
+                                raw_metar = amss_metar
+                            except Exception:
+                                pass
                 
-                # Check CheckWX if NOAA failed
+                # Check NOAA if AMSS failed
+                if not raw_metar:
+                    noaa_text = results.get(f'noaa_metar_{station}')
+                    if noaa_text:
+                        lines = noaa_text.strip().split('\n')
+                        if len(lines) >= 2:
+                            noaa_time_str = lines[0].strip()
+                            try:
+                                obs_dt = datetime.strptime(noaa_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
+                                raw_metar = lines[1]
+                            except Exception:
+                                pass
+                
+                # Check CheckWX if NOAA/AMSS failed
                 if not raw_metar:
                     cwx_data = results.get(f'checkwx_metar_{station}')
                     if cwx_data and cwx_data.get('results', 0) > 0:
@@ -568,6 +664,42 @@ def get_station_details(station: str) -> dict:
         if info_data and isinstance(info_data, list) and len(info_data) > 0:
             station_name = info_data[0].get('site', 'Unknown Station')
             
+        if not data and station.startswith('V'):
+            amss_raw = fetch_amss_delhi()
+            if amss_raw:
+                amss_metar = parse_amss_metar(amss_raw, station)
+                if amss_metar:
+                    try:
+                        from datetime import datetime, timezone
+                        now_dt = datetime.now(timezone.utc)
+                        day = int(amss_metar[5:7])
+                        hour = int(amss_metar[7:9])
+                        minute = int(amss_metar[9:11])
+                        obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+                        if obs_dt > now_dt:
+                            if now_dt.month == 1: obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
+                            else: obs_dt = obs_dt.replace(month=now_dt.month - 1)
+                            
+                        return {
+                            "icao": station,
+                            "name": station_name,
+                            "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                            "model": {
+                                "temp": "N/A",
+                                "dew": "N/A",
+                                "windDir": 0,
+                                "windSpeed": 0,
+                                "windStr": "N/A (Raw Feed Only)",
+                                "visibility": "N/A",
+                                "clouds": "N/A",
+                                "weather": "AMSS Delhi Domestic",
+                                "altimeter": "N/A"
+                            },
+                            "history": [amss_metar]
+                        }
+                    except Exception:
+                        pass
+                        
         if not data:
             cwx_api_key = os.environ.get('CHECKWX_API_KEY')
             if cwx_api_key:
