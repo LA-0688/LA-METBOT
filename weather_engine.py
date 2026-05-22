@@ -244,7 +244,7 @@ def get_instant_weather(stations: str) -> str:
                 obs_time_raw = m.get('obsTime', 'N/A')
                 obs_time = str(obs_time_raw).replace('T', ' ').replace('Z', ' UTC')
                 
-                # Check if stale (older than 1 hour)
+                # Check if stale (older than 2 hours)
                 is_stale = False
                 elapsed_min = 0
                 if obs_time_raw != 'N/A':
@@ -252,7 +252,7 @@ def get_instant_weather(stations: str) -> str:
                         obs_dt = datetime.fromisoformat(obs_time_raw.replace('Z', '+00:00'))
                         now_dt = datetime.now(timezone.utc)
                         elapsed_min = int((now_dt - obs_dt).total_seconds() / 60)
-                        if (now_dt - obs_dt).total_seconds() > 3600:
+                        if (now_dt - obs_dt).total_seconds() > 7200: # 2 hours
                             is_stale = True
                     except Exception:
                         pass
@@ -267,7 +267,7 @@ def get_instant_weather(stations: str) -> str:
                             try:
                                 noaa_dt = datetime.strptime(noaa_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
                                 now_dt = datetime.now(timezone.utc)
-                                if (now_dt - noaa_dt).total_seconds() <= 3600:
+                                if (now_dt - noaa_dt).total_seconds() <= 7200: # Max 2 hours for fallback
                                     raw_metar = lines[1]
                                     is_stale = False
                             except Exception:
