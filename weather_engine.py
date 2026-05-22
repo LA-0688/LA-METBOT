@@ -103,12 +103,16 @@ def fetch_ogimet_metar(icao: str) -> tuple[str | None, datetime | None]:
     """
     try:
         now = datetime.now(timezone.utc)
+        # Ogimet needs ano/mes/day (start) < anof/mesf/dayf (end).
+        # We look from yesterday 00Z to now, to catch overnight METARs.
+        from datetime import timedelta
+        yesterday = now - timedelta(days=1)
         url = (
             f"https://ogimet.com/display_metars2.php?lang=en&lugar={icao.upper()}"
             f"&tipo=ALL&ord=REV&nil=SI&fmt=html"
-            f"&ano={now.year}&mes={now.month:02d}&day={now.day:02d}"
-            f"&hora={now.hour:02d}&anof={now.year}&mesf={now.month:02d}"
-            f"&dayf={now.day:02d}&horaf=00&minf=00&send=send"
+            f"&ano={yesterday.year}&mes={yesterday.month:02d}&day={yesterday.day:02d}"
+            f"&hora=00&anof={now.year}&mesf={now.month:02d}"
+            f"&dayf={now.day:02d}&horaf={now.hour:02d}&minf=59&send=send"
         )
         r = requests.get(url, timeout=10,
                          headers={"User-Agent": "Mozilla/5.0"})
