@@ -263,7 +263,15 @@ def get_instant_weather(stations: str) -> str:
                     if noaa_text:
                         lines = noaa_text.strip().split('\n')
                         if len(lines) >= 2:
-                            raw_metar = lines[1]
+                            noaa_time_str = lines[0].strip()
+                            try:
+                                noaa_dt = datetime.strptime(noaa_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
+                                now_dt = datetime.now(timezone.utc)
+                                if (now_dt - noaa_dt).total_seconds() <= 3600:
+                                    raw_metar = lines[1]
+                                    is_stale = False
+                            except Exception:
+                                pass
                 flt_cat = m.get('fltCat', 'N/A')
                 wdir = m.get('wdir', 'VRB' if m.get('wdir') == 0 else m.get('wdir', 'N/A'))
                 wspd = m.get('wspd', 'N/A')
@@ -280,7 +288,7 @@ def get_instant_weather(stations: str) -> str:
                 
                 result_text += f"✈️ **METAR** ({elapsed_min}m ago)\n```\n{raw_metar}\n\n```\n\n"
                 if is_stale:
-                    result_text += "⚠️ *Warning:* Decoded data below may be stale (source delayed). Showing latest raw METAR from NOAA if available.\n\n"
+                    result_text += "⚠️ *Warning:* Decoded data below may be stale (source delayed).\n\n"
                 if name != 'Unknown Station':
                     result_text += f"🏢 *Facility:* {name}\n"
                 if obs_time != 'N/A':
@@ -307,12 +315,19 @@ def get_instant_weather(stations: str) -> str:
                 if noaa_text:
                     lines = noaa_text.strip().split('\n')
                     if len(lines) >= 2:
-                        raw_metar = lines[1]
+                        noaa_time_str = lines[0].strip()
+                        try:
+                            noaa_dt = datetime.strptime(noaa_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
+                            now_dt = datetime.now(timezone.utc)
+                            if (now_dt - noaa_dt).total_seconds() <= 3600 * 2: # Max 2 hours for fallback
+                                raw_metar = lines[1]
+                        except Exception:
+                            pass
                     
-                    if raw_metar:
-                        result_text += f"✈️ **METAR**\n```\n{raw_metar}\n\n```\n\n"
-                    else:
-                        result_text += f"✈️ *METAR*\n_No METAR data available._\n\n"
+                if raw_metar:
+                    result_text += f"✈️ **METAR**\n```\n{raw_metar}\n\n```\n\n"
+                else:
+                    result_text += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
                 
             # --- TAF ---
             if station in tafs_by_station:
@@ -357,17 +372,23 @@ def get_instant_weather(stations: str) -> str:
                 if noaa_text:
                     lines = noaa_text.strip().split('\n')
                     if len(lines) >= 2:
-                        raw_taf = " ".join(lines[1:])
-                        raw_taf = raw_taf.strip()
-                        while raw_taf.upper().startswith('TAF'):
-                            raw_taf = raw_taf[3:].strip()
-                        noaa_time = lines[0].strip()
-                        issue_time_formatted = noaa_time.replace('/', '-') + ":00 UTC"
+                        noaa_time_str = lines[0].strip()
+                        try:
+                            noaa_dt = datetime.strptime(noaa_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
+                            now_dt = datetime.now(timezone.utc)
+                            if (now_dt - noaa_dt).total_seconds() <= 3600 * 30: # Max 30 hours for TAF
+                                raw_taf = " ".join(lines[1:])
+                                raw_taf = raw_taf.strip()
+                                while raw_taf.upper().startswith('TAF'):
+                                    raw_taf = raw_taf[3:].strip()
+                                issue_time_formatted = noaa_time_str.replace('/', '-') + ":00 UTC"
+                        except Exception:
+                            pass
                 
                 if raw_taf:
                     result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
                 else:
-                    result_text += f"📅 **TAF**\n_No TAF forecast available._\n\n"
+                    result_text += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
                 
             # --- ATIS ---
             atis_data = results.get(f'atis_{station}')
@@ -398,8 +419,32 @@ def get_station_details(station: str) -> dict:
     try:
         url = f"https://aviationweather.gov/api/data/metar?ids={station}&format=json&hours=4"
         data = safe_get(url, timeout=5, retries=1)
+        
+        info_url = f"https://aviationweather.gov/api/data/stationinfo?ids={station}&format=json"
+        info_data = safe_get(info_url, timeout=5, retries=1)
+        
+        station_name = "Unknown Station"
+        if info_data and isinstance(info_data, list) and len(info_data) > 0:
+            station_name = info_data[0].get('site', 'Unknown Station')
+            
         if not data:
-            return {"error": "No data found"}
+            return {
+                "icao": station,
+                "name": station_name,
+                "time": "N/A",
+                "model": {
+                    "temp": "N/A",
+                    "dew": "N/A",
+                    "windDir": 0,
+                    "windSpeed": 0,
+                    "windStr": "N/A",
+                    "visibility": "N/A",
+                    "clouds": "N/A",
+                    "weather": "N/A",
+                    "altimeter": "N/A"
+                },
+                "history": []
+            }
         
         # Sort by observation time descending
         data.sort(key=lambda x: x.get('obsTime', 0), reverse=True)
