@@ -24,24 +24,37 @@ class CustomAdapter(requests.adapters.HTTPAdapter):
 load_dotenv()
 
 # ---------- Helper: AMSS Delhi Scraper ----------
-def fetch_amss_delhi() -> str:
-    """Fetches the raw AMSS feed and bypasses SSL restrictions."""
+def fetch_all_imd_regional_nodes() -> str:
+    """Fetches the raw AMSS feed and regional IMD nodes in parallel to bypass SSL restrictions."""
     headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        session = requests.Session()
-        session.mount('https://', CustomAdapter())
-        combined_text = ""
-        for page in ['Palam1.php', 'Palam2.php', 'Palam3.php', 'Palam4.php', 'Palam5.php']:
-            try:
-                resp = session.get(f"https://amssdelhi.gov.in/{page}", headers=headers, verify=False, timeout=8)
-                if resp.status_code == 200:
-                    combined_text += BeautifulSoup(resp.text, 'html.parser').get_text() + "\n"
-            except Exception:
-                pass
-        return combined_text
-    except Exception as e:
-        print(f"AMSS Error: {e}")
+    urls = [
+        "https://amssdelhi.gov.in/Palam1.php",
+        "https://amssdelhi.gov.in/Palam2.php",
+        "https://amssdelhi.gov.in/Palam3.php",
+        "https://amssdelhi.gov.in/Palam4.php",
+        "https://amssdelhi.gov.in/Palam5.php",
+        "https://mwokolkata.imd.gov.in/",
+        "https://mausam.imd.gov.in/mumbai/",
+        "https://mausam.imd.gov.in/chennai/"
+    ]
+    
+    def _fetch(url):
+        try:
+            session = requests.Session()
+            session.mount('https://', CustomAdapter())
+            resp = session.get(url, headers=headers, verify=False, timeout=8)
+            if resp.status_code == 200:
+                return BeautifulSoup(resp.text, 'html.parser').get_text() + "\n"
+        except Exception:
+            pass
         return ""
+        
+    combined_text = ""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for text in executor.map(_fetch, urls):
+            if text:
+                combined_text += text
+    return combined_text
 
 def parse_amss_metar(raw_text: str, icao: str) -> str:
     if not raw_text or not icao.upper().startswith('V'):
@@ -209,7 +222,7 @@ def get_instant_weather(stations: str) -> str:
         def fetch_url(name, url):
             try:
                 if url == 'AMSS_TRIGGER':
-                    return name, fetch_amss_delhi()
+                    return name, fetch_all_imd_regional_nodes()
                 elif 'aviationweather' in url:
                     return name, safe_get(url, timeout=6, retries=1)
                 elif 'tgftp.nws.noaa.gov' in url:
@@ -685,7 +698,7 @@ def get_station_details(station: str) -> dict:
             station_name = info_data[0].get('site', 'Unknown Station')
             
         if not data and station.startswith('V'):
-            amss_raw = fetch_amss_delhi()
+            amss_raw = fetch_all_imd_regional_nodes()
             if amss_raw:
                 amss_metar = parse_amss_metar(amss_raw, station)
                 if amss_metar:
