@@ -357,15 +357,7 @@
                     document.getElementById('modal-clouds').textContent = cloudsText || 'CLEAR';
                     const cloudsIcon = document.getElementById('modal-clouds-icon');
                     const cloudsUpper = cloudsText.toUpperCase();
-                    if (cloudsUpper.includes('OVC') || cloudsUpper.includes('BKN')) {
-                        cloudsIcon.innerHTML = AnimatedIcons.Cloud;
-                    } else if (cloudsUpper.includes('SCT') || cloudsUpper.includes('FEW')) {
-                        cloudsIcon.innerHTML = AnimatedIcons.PartlyCloudy;
-                    } else if (cloudsUpper.includes('CLR') || cloudsUpper.includes('SKC') || cloudsUpper.includes('CAVOK') || cloudsUpper.includes('NSC')) {
-                        cloudsIcon.innerHTML = AnimatedIcons.Sun;
-                    } else {
-                        cloudsIcon.innerHTML = AnimatedIcons.Cloud;
-                    }
+                    cloudsIcon.innerHTML = AnimatedIcons.getCloudOktaSVG(cloudsUpper);
                     document.getElementById('modal-temp').textContent = data.model.temp;
                     document.getElementById('modal-dew').textContent = data.model.dew;
                     document.getElementById('modal-altim').textContent = data.model.altimeter;

@@ -155,5 +155,36 @@ const AnimatedIcons = {
         
         svg += `</svg>`;
         return svg;
+    },
+
+    getCloudOktaSVG: function(cloudStr) {
+        if (!cloudStr) cloudStr = "";
+        cloudStr = cloudStr.toUpperCase();
+        let fillPath = "";
+        
+        if (cloudStr.includes('OVC')) {
+            fillPath = `<circle cx="24" cy="24" r="16" fill="#94A3B8" />`;
+        } else if (cloudStr.includes('BKN')) {
+            fillPath = `<path d="M24,24 L24,8 A16,16 0 1,1 8,24 Z" fill="#94A3B8" />`;
+        } else if (cloudStr.includes('SCT')) {
+            fillPath = `<path d="M24,24 L24,8 A16,16 0 0,1 24,40 Z" fill="#94A3B8" />`;
+        } else if (cloudStr.includes('FEW')) {
+            fillPath = `<path d="M24,24 L24,8 A16,16 0 0,1 40,24 Z" fill="#94A3B8" />`;
+        } else if (cloudStr.includes('VV')) {
+            fillPath = `<line x1="13" y1="13" x2="35" y2="35" stroke="#94A3B8" stroke-width="3" stroke-linecap="round" /><line x1="35" y1="13" x2="13" y2="35" stroke="#94A3B8" stroke-width="3" stroke-linecap="round" />`;
+        }
+        
+        return `<svg viewBox="0 0 48 48" width="48" height="48">
+            <style>
+                @keyframes oktaPulse {
+                    0%, 100% { transform: scale(1); opacity: 1; }
+                    50% { transform: scale(1.05); opacity: 0.9; }
+                }
+            </style>
+            <g style="animation: oktaPulse 4s infinite ease-in-out; transform-origin: 24px 24px;">
+                <circle cx="24" cy="24" r="16" stroke="#94A3B8" stroke-width="3" fill="none" />
+                ${fillPath}
+            </g>
+        </svg>`;
     }
 };
