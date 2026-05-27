@@ -948,8 +948,8 @@ def parse_raw_metar_to_dict(metar: str) -> dict:
         "windSpeed": 0,
         "windStr": "N/A",
         "visibility": "N/A",
-        "clouds": "CAVOK",
-        "weather": "CAVOK",
+        "clouds": "CLEAR",
+        "weather": "NONE",
         "altimeter": "N/A"
     }
     
@@ -1015,6 +1015,11 @@ def parse_raw_metar_to_dict(metar: str) -> dict:
             cloud_strs.append(f"{cvr}{base_str}")
         if cloud_strs:
             model["clouds"] = " ".join(cloud_strs)
+            
+    if "CAVOK" in metar:
+        model["weather"] = "CAVOK"
+        model["clouds"] = "CAVOK"
+        model["visibility"] = "10+ Kms"
             
     # 6. Weather
     if "NOSIG" in metar:
@@ -1345,8 +1350,8 @@ def get_station_details(station: str) -> dict:
                 hpa = int(round(altim * 33.8639))
                 altim_str = f"Q{hpa} hPa"
                 
-        wx = latest.get('wxString', 'CAVOK')
-        if not wx: wx = 'CAVOK'
+        wx = latest.get('wxString', '')
+        if not wx: wx = 'NONE'
         
         clouds_list = latest.get('clouds', [])
         cloud_strs = []
@@ -1360,8 +1365,14 @@ def get_station_details(station: str) -> dict:
                 base_str = str(base)
             cloud_strs.append(f"{cvr}{base_str}{typ}")
         
-        cloud_full = " ".join(cloud_strs) if cloud_strs else "CAVOK"
-        if cloud_full.strip() == "": cloud_full = "CAVOK"
+        cloud_full = " ".join(cloud_strs) if cloud_strs else "CLEAR"
+        if cloud_full.strip() == "": cloud_full = "CLEAR"
+        
+        raw_ob = latest.get('rawOb', '')
+        if 'CAVOK' in raw_ob:
+            cloud_full = 'CAVOK'
+            wx = 'CAVOK'
+            vis_str = '10+ Kms'
         
         # History (up to 3)
         history = [m.get('rawOb', '').replace('\n', ' ').strip() for m in data[:3]]
