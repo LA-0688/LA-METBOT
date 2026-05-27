@@ -66,12 +66,12 @@
                         <div class="grid-value" id="modal-vis">4000m</div>
                     </div>
                     <div class="grid-item">
-                        <i class="fa-solid fa-cloud-showers-heavy grid-icon"></i>
+                        <i class="fa-solid fa-cloud-showers-heavy grid-icon" id="modal-wx-icon"></i>
                         <div class="grid-label">WEATHER</div>
                         <div class="grid-value" id="modal-wx" style="color: var(--accent-yellow);">TSRA</div>
                     </div>
                     <div class="grid-item">
-                        <i class="fa-solid fa-cloud grid-icon"></i>
+                        <i class="fa-solid fa-cloud grid-icon" id="modal-clouds-icon"></i>
                         <div class="grid-label">CLOUDS</div>
                         <div class="grid-value" id="modal-clouds">SCT020</div>
                     </div>
@@ -330,8 +330,40 @@
                     
                     document.getElementById('modal-wind').textContent = data.model.windStr;
                     document.getElementById('modal-vis').textContent = data.model.visibility;
-                    document.getElementById('modal-wx').textContent = data.model.weather;
-                    document.getElementById('modal-clouds').textContent = data.model.clouds;
+                    
+                    const wxText = data.model.weather || '';
+                    document.getElementById('modal-wx').textContent = wxText || 'NONE';
+                    const wxIcon = document.getElementById('modal-wx-icon');
+                    const wxUpper = wxText.toUpperCase();
+                    if (wxUpper.includes('TS')) {
+                        wxIcon.className = 'fa-solid fa-cloud-bolt grid-icon';
+                    } else if (wxUpper.includes('SN') || wxUpper.includes('SG')) {
+                        wxIcon.className = 'fa-solid fa-snowflake grid-icon';
+                    } else if (wxUpper.includes('RA') || wxUpper.includes('DZ') || wxUpper.includes('SH')) {
+                        wxIcon.className = 'fa-solid fa-cloud-showers-water grid-icon';
+                    } else if (wxUpper.includes('FG') || wxUpper.includes('BR') || wxUpper.includes('HZ') || wxUpper.includes('FU') || wxUpper.includes('DU') || wxUpper.includes('VA') || wxUpper.includes('SA')) {
+                        wxIcon.className = 'fa-solid fa-smog grid-icon';
+                    } else if (wxUpper.includes('FC')) {
+                        wxIcon.className = 'fa-solid fa-tornado grid-icon';
+                    } else if (wxUpper === '') {
+                        wxIcon.className = 'fa-solid fa-sun grid-icon';
+                    } else {
+                        wxIcon.className = 'fa-solid fa-cloud grid-icon';
+                    }
+
+                    const cloudsText = data.model.clouds || '';
+                    document.getElementById('modal-clouds').textContent = cloudsText || 'CLEAR';
+                    const cloudsIcon = document.getElementById('modal-clouds-icon');
+                    const cloudsUpper = cloudsText.toUpperCase();
+                    if (cloudsUpper.includes('OVC') || cloudsUpper.includes('BKN')) {
+                        cloudsIcon.className = 'fa-solid fa-cloud grid-icon';
+                    } else if (cloudsUpper.includes('SCT') || cloudsUpper.includes('FEW')) {
+                        cloudsIcon.className = 'fa-solid fa-cloud-sun grid-icon';
+                    } else if (cloudsUpper.includes('CLR') || cloudsUpper.includes('SKC') || cloudsUpper.includes('CAVOK') || cloudsUpper.includes('NSC')) {
+                        cloudsIcon.className = 'fa-solid fa-sun grid-icon';
+                    } else {
+                        cloudsIcon.className = 'fa-solid fa-cloud grid-icon';
+                    }
                     document.getElementById('modal-temp').textContent = data.model.temp;
                     document.getElementById('modal-dew').textContent = data.model.dew;
                     document.getElementById('modal-altim').textContent = data.model.altimeter;
