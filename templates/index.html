@@ -57,7 +57,7 @@
                 
                 <div class="modal-grid">
                     <div class="grid-item">
-                        <i class="fa-solid fa-location-arrow grid-icon" id="modal-wind-icon"></i>
+                        <div id="modal-wind-icon-container" style="margin: 0 auto; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; margin-bottom: 0.5rem; transition: transform 0.5s ease-in-out;"></div>
                         <div class="grid-label">WIND</div>
                         <div class="grid-value" id="modal-wind">270° / 15 KT</div>
                     </div>
@@ -370,9 +370,12 @@
                     document.getElementById('modal-dew').textContent = data.model.dew;
                     document.getElementById('modal-altim').textContent = data.model.altimeter;
                     
-                    // Rotate wind arrow
+                    // Draw and rotate wind barb
                     const windDir = parseInt(data.model.windDir) || 0;
-                    document.getElementById('modal-wind-icon').style.transform = `rotate(${windDir + 45}deg)`; // FA arrow points diagonally up right by default
+                    const windSpeed = parseInt(data.model.windSpeed) || 0;
+                    const windContainer = document.getElementById('modal-wind-icon-container');
+                    windContainer.innerHTML = AnimatedIcons.getWindBarbSVG(windSpeed);
+                    windContainer.style.transform = `rotate(${windDir}deg)`;
 
                     const histList = document.getElementById('modal-history-list');
                     histList.innerHTML = '';

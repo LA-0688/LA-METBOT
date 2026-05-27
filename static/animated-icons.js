@@ -116,5 +116,44 @@ const AnimatedIcons = {
   <g style="animation: tornadoSway 0.5s infinite ease-in-out;">
     <path d="M12 16h24M16 24h16M20 32h8M22 40h4" stroke="#94A3B8" stroke-width="3" stroke-linecap="round" fill="none" />
   </g>
-</svg>`
+</svg>`,
+
+    getWindBarbSVG: function(speed) {
+        if (speed === 0) {
+            return `<svg viewBox="0 0 48 48" width="48" height="48">
+                <circle cx="24" cy="24" r="6" stroke="#3B82F6" stroke-width="2" fill="none" />
+                <circle cx="24" cy="24" r="2" fill="#3B82F6" />
+            </svg>`;
+        }
+        
+        let pennants = Math.floor(speed / 50);
+        speed %= 50;
+        let fullBarbs = Math.floor(speed / 10);
+        speed %= 10;
+        let halfBarbs = Math.floor(speed / 5);
+        
+        let svg = `<svg viewBox="0 0 48 48" width="48" height="48">`;
+        svg += `<circle cx="24" cy="24" r="4" fill="#3B82F6" />`;
+        svg += `<line x1="24" y1="24" x2="24" y2="4" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" />`;
+        
+        let currentY = 4;
+        
+        for (let i = 0; i < pennants; i++) {
+            svg += `<polygon points="24,${currentY} 34,${currentY+2} 24,${currentY+4}" fill="#3B82F6" />`;
+            currentY += 6;
+        }
+        
+        for (let i = 0; i < fullBarbs; i++) {
+            svg += `<line x1="24" y1="${currentY}" x2="34" y2="${currentY-4}" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" />`;
+            currentY += 4;
+        }
+        
+        if (halfBarbs > 0) {
+            if (pennants === 0 && fullBarbs === 0) currentY += 2;
+            svg += `<line x1="24" y1="${currentY}" x2="29" y2="${currentY-2}" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" />`;
+        }
+        
+        svg += `</svg>`;
+        return svg;
+    }
 };
