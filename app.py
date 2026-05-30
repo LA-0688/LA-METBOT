@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 app = Flask(__name__)
 
 # Telegram Bot Token
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7963496030:AAGYl85m31g5sA9F0Dtd2-0R5UqSntO2s-Q")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8686185217:AAHn3-lNBVmFNKc4F_QCP3Gpf9nQM2rgpI4")
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 
 def get_elapsed_str(raw_text):
