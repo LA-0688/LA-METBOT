@@ -39,7 +39,7 @@ def api_weather():
     try:
         clean_stations = ",".join(stations_list)
         taf_url = f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
-        taf_resp = requests.get(taf_url, timeout=3)
+        taf_resp = requests.get(taf_url, timeout=8)
         if taf_resp.status_code == 200:
             tafs = taf_resp.json()
             for t in tafs:
@@ -108,9 +108,29 @@ def api_station():
     if not force_refresh:
         cached_data = get_cached_weather(icao)
         if cached_data:
-            # High-speed match found! Return the JSON payload directly
-            # We return the exact decoded_data structure so frontend modal doesn't break
-            return jsonify(cached_data['decoded_data'])
+            # High-speed match found!
+            payload = cached_data['decoded_data']
+            
+            # Dynamically fetch 3-hour history + TAF for the modal
+            try:
+                hist_url = f"https://aviationweather.gov/api/data/metar?ids={icao}&format=raw&hours=4"
+                hist_res = requests.get(hist_url, timeout=4)
+                if hist_res.status_code == 200:
+                    hist_lines = [l.strip() for l in hist_res.text.strip().split('\n') if l.strip()]
+                    if hist_lines:
+                        payload['history'] = hist_lines[:3]
+                
+                taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
+                taf_res = requests.get(taf_url, timeout=4)
+                if taf_res.status_code == 200:
+                    taf_text = taf_res.text.strip()
+                    if taf_text:
+                        # Prepend the TAF so it shows up at the top of the RECENT REPORTS modal
+                        payload['history'].insert(0, f"TAF {taf_text}")
+            except Exception:
+                pass
+                
+            return jsonify(payload)
 
     # 2. Cache Miss / Stale Data / Forced Refresh -> Execute legacy weather_engine.py
     try:
@@ -120,6 +140,24 @@ def api_station():
         raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
         raw_taf = '' # TAF is not exposed by get_station_details currently
         decoded_payload = live_result
+        
+        # Dynamically inject TAF and 3-hour history to live scrape too
+        try:
+            hist_url = f"https://aviationweather.gov/api/data/metar?ids={icao}&format=raw&hours=4"
+            hist_res = requests.get(hist_url, timeout=4)
+            if hist_res.status_code == 200:
+                hist_lines = [l.strip() for l in hist_res.text.strip().split('\n') if l.strip()]
+                if hist_lines:
+                    decoded_payload['history'] = hist_lines[:3]
+            
+            taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
+            taf_res = requests.get(taf_url, timeout=4)
+            if taf_res.status_code == 200:
+                taf_text = taf_res.text.strip()
+                if taf_text:
+                    decoded_payload['history'].insert(0, f"TAF {taf_text}")
+        except Exception:
+            pass
         
         # 3. Securely update the cache in the background for subsequent users
         upsert_weather(icao, raw_metar, raw_taf, decoded_payload)
