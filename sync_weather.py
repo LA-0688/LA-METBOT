@@ -217,35 +217,151 @@ def global_bulk_sync():
     return total_inserted
 
 
-def indian_priority_sync():
-    """Phase 2: Runs the specialized AAI/AMSS/Ogimet scraper ONLY for Indian airports
-    that need higher-quality domestic data sources not available in the NOAA feed.
+def indian_bulk_sync():
+    """Phase 2: Scrapes the AAI portal and AMSS regional nodes ONCE each,
+    extracts ALL Indian airport METARs in bulk, parses them, and bulk-inserts
+    into Supabase. This covers 50+ Indian airports in ~10 seconds instead of
+    scraping them one-by-one.
     """
-    print(f"[INDIA SYNC] Refreshing {len(INDIAN_PRIORITY_STATIONS)} priority Indian airports...", flush=True)
-    for icao in INDIAN_PRIORITY_STATIONS:
+    import ssl
+    import concurrent.futures
+    from requests.adapters import HTTPAdapter
+    from urllib3.poolmanager import PoolManager
+    from bs4 import BeautifulSoup
+
+    class TLSAdapter(HTTPAdapter):
+        def init_poolmanager(self, connections, maxsize, block=False):
+            ctx = ssl.create_default_context()
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, ssl_context=ctx)
+
+    class CustomAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            ctx = ssl.create_default_context()
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            kwargs['ssl_context'] = ctx
+            return super().init_poolmanager(*args, **kwargs)
+
+    combined_text = ""
+    indian_records = {}  # icao -> (raw_metar, obs_time_str)
+
+    # ---------- Source 1: AMSS Delhi + Regional IMD Nodes ----------
+    amss_urls = [
+        "https://amssdelhi.gov.in/Palam1.php",
+        "https://amssdelhi.gov.in/Palam2.php",
+        "https://amssdelhi.gov.in/Palam3.php",
+        "https://amssdelhi.gov.in/Palam4.php",
+        "https://amssdelhi.gov.in/Palam5.php",
+        "https://mwokolkata.imd.gov.in/",
+        "https://mausam.imd.gov.in/mumbai/",
+        "https://mausam.imd.gov.in/chennai/"
+    ]
+
+    def fetch_amss(url):
         try:
-            print(f"[INDIA SYNC] Syncing: {icao}", flush=True)
-            live_result = get_station_details(icao)
+            s = requests.Session()
+            s.mount('https://', CustomAdapter())
+            r = s.get(url, headers={"User-Agent": "Mozilla/5.0"}, verify=False, timeout=10)
+            if r.status_code == 200:
+                return BeautifulSoup(r.text, 'html.parser').get_text()
+        except:
+            pass
+        return ""
 
-            raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
-            raw_taf = ''
-            decoded_payload = live_result
+    print("[INDIA SYNC] Scraping AMSS Delhi + IMD regional nodes in parallel...", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for text in executor.map(fetch_amss, amss_urls):
+            combined_text += text
 
-            upsert_weather(
-                icao=icao,
-                raw_metar=raw_metar,
-                raw_taf=raw_taf,
-                decoded_json=decoded_payload
-            )
-            time.sleep(1)  # Gentle cooldown between scrapes
-        except Exception as e:
-            print(f"[INDIA SYNC] Error syncing {icao}: {e}", flush=True)
+    # ---------- Source 2: AAI Portal (aim-india.aai.aero) ----------
+    print("[INDIA SYNC] Scraping AAI portal...", flush=True)
+    try:
+        session = requests.Session()
+        session.mount('https://', TLSAdapter())
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+        session.get("https://aim-india.aai.aero/", headers=headers, timeout=5)
+        aai_resp = session.get("https://aim-india.aai.aero/eaip/metar_taf.php", headers=headers, timeout=10)
+        if aai_resp.status_code == 200:
+            aai_text = BeautifulSoup(aai_resp.text, "html.parser").get_text()
+            combined_text += "\n" + aai_text
+            print("[INDIA SYNC] AAI portal data received.", flush=True)
+        else:
+            print(f"[INDIA SYNC] AAI portal returned status {aai_resp.status_code}.", flush=True)
+    except Exception as e:
+        print(f"[INDIA SYNC] AAI portal unavailable: {e}", flush=True)
 
-    print(f"[INDIA SYNC] ✅ Indian priority stations refreshed.", flush=True)
+    # ---------- Extract ALL Indian METARs from combined text ----------
+    # Indian ICAO prefixes: VA (West), VE (East), VI (North), VO (South)
+    pattern = r'\b(V[AEIO][A-Z]{2})\s+([0-9]{6}Z[^=\n]*)'
+    matches = list(re.finditer(pattern, combined_text))
+
+    for m in matches:
+        raw = m.group(0).strip().rstrip('=')
+        icao = m.group(1)
+
+        # Skip TAF lines (contain validity periods like 2218/2400)
+        if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
+            continue
+
+        # Keep only the first (newest) occurrence of each airport
+        if icao in indian_records:
+            continue
+
+        # Parse observation time from the 6-digit timestamp (DDHHMMZ)
+        ts_match = re.search(r'\b([0-9]{6})Z\b', raw)
+        time_str = "N/A"
+        if ts_match:
+            try:
+                ts = ts_match.group(1)
+                day, hour, minute = int(ts[0:2]), int(ts[2:4]), int(ts[4:6])
+                now_dt = datetime.now(timezone.utc)
+                obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+                if obs_dt > now_dt:
+                    if now_dt.month == 1:
+                        obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
+                    else:
+                        obs_dt = obs_dt.replace(month=now_dt.month - 1)
+                time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+            except:
+                pass
+
+        indian_records[icao] = (raw, time_str)
+
+    print(f"[INDIA SYNC] Extracted {len(indian_records)} unique Indian airport METARs.", flush=True)
+
+    if not indian_records:
+        print("[INDIA SYNC] No Indian METARs found. Skipping bulk insert.", flush=True)
+        return
+
+    # ---------- Build bulk records and insert ----------
+    bulk_records = []
+    for icao, (raw_metar, time_str) in indian_records.items():
+        model = parse_raw_metar_to_bulk_record(raw_metar)
+        model["weather"] = f"{model['weather']} (AMSS/AAI)" if model["weather"] != "NONE" else "AMSS/AAI"
+
+        decoded_data = {
+            "icao": icao,
+            "name": "Unknown Station",
+            "time": time_str,
+            "model": model,
+            "history": [raw_metar]
+        }
+        bulk_records.append((icao, raw_metar, "", decoded_data))
+
+    # Bulk write all Indian airports in one transaction
+    count = bulk_upsert_weather(bulk_records)
+    print(f"[INDIA SYNC] ✅ {count} Indian airports bulk-cached with domestic AMSS/AAI data.", flush=True)
 
 
 def full_sync_cycle():
-    """Runs a complete sync cycle: Global bulk first, then Indian priority override."""
+    """Runs a complete sync cycle: Global bulk first, then Indian bulk override."""
     print(f"\n{'='*60}", flush=True)
     print(f"[SYNC] Starting full sync cycle at {datetime.now(timezone.utc).strftime('%H:%M UTC')}", flush=True)
     print(f"{'='*60}", flush=True)
@@ -253,8 +369,8 @@ def full_sync_cycle():
     # Phase 1: Bulk-load the entire planet (~4,600 airports in ~5 seconds)
     global_bulk_sync()
 
-    # Phase 2: Override Indian airports with specialized high-quality domestic data
-    indian_priority_sync()
+    # Phase 2: Bulk-override ALL Indian airports with domestic AMSS/AAI data (~10 seconds)
+    indian_bulk_sync()
 
     print(f"[SYNC] ✅ Full cycle complete.\n", flush=True)
 
