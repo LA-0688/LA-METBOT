@@ -16,7 +16,8 @@ def get_pool():
             db_url = db_url.strip()
         # Ensure minimum of 1 connection and max of 10 to avoid connection limits
         # timeout=2.0 fails fast if pool is empty. kwargs={"connect_timeout": 2} fails fast on DB connection issue
-        _pool = ConnectionPool(db_url, min_size=1, max_size=10, timeout=2.0, kwargs={"connect_timeout": 2})
+        # Supabase uses PgBouncer in transaction mode, which breaks psycopg3 prepared statements. Must disable them!
+        _pool = ConnectionPool(db_url, min_size=1, max_size=10, timeout=2.0, kwargs={"connect_timeout": 2, "prepare_threshold": None})
     return _pool
 
 def get_cached_weather(icao):
