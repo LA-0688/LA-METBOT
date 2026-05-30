@@ -29,8 +29,48 @@ def index():
 def api_weather():
     """Frontend Javascript calls this to get the weather text."""
     stations = request.args.get('stations', '')
-    weather_data = get_instant_weather(stations)
-    return jsonify({"text": weather_data})
+    stations_list = [s.strip().upper() for s in stations.replace(",", " ").split() if s.strip()]
+    
+    if not stations_list:
+        return jsonify({"text": "Please provide at least one station code."})
+        
+    result_text = ""
+    for icao in stations_list:
+        cached_data = get_cached_weather(icao)
+        if cached_data:
+            c = cached_data['decoded_data']
+            m = c.get('model', {})
+            
+            # Reconstruct the exact Markdown expected by index.html from the cache
+            md = f"### 📍 {c.get('icao', icao)} | {c.get('name', 'Unknown Station')} | {c.get('coords', '')} | {c.get('sun', '')}\n\n"
+            
+            history = c.get('history', [])
+            raw_metar = history[0] if history else ""
+            if raw_metar:
+                md += f"✈️ **METAR**\n```\n{raw_metar}\n```\n\n"
+            else:
+                md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
+                
+            raw_taf = cached_data.get('raw_taf', '')
+            if raw_taf:
+                md += f"📅 **TAF** (Issued: N/A)\n```\n{raw_taf}\n```\n\n"
+            else:
+                md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
+                
+            md += "*Decoded:*\n"
+            md += f"  🔹 **Wind**: {m.get('windStr', 'N/A')}\n"
+            md += f"  🔹 **Visibility**: {m.get('visibility', 'N/A')}\n"
+            md += f"  🔹 **Weather**: {m.get('weather', 'NONE')}\n"
+            md += f"  🔹 **Clouds**: {m.get('clouds', 'CLEAR')}\n"
+            md += f"  🔹 **Temp**: {m.get('temp', 'N/A')} | **Dew**: {m.get('dew', 'N/A')}\n"
+            md += f"  🔹 **Altimeter**: {m.get('altimeter', 'N/A')}\n\n"
+            
+            result_text += md
+        else:
+            # Fallback to slow legacy scrape if not cached
+            result_text += get_instant_weather(icao) + "\n\n"
+            
+    return jsonify({"text": result_text})
 
 @app.route('/api/station', methods=['GET'])
 def api_station():
