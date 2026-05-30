@@ -34,6 +34,28 @@ def api_weather():
     if not stations_list:
         return jsonify({"text": "Please provide at least one station code."})
         
+    # Bulk fetch TAFs for the requested stations (extremely fast for < 20 stations)
+    taf_dict = {}
+    try:
+        clean_stations = ",".join(stations_list)
+        taf_url = f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
+        taf_resp = requests.get(taf_url, timeout=3)
+        if taf_resp.status_code == 200:
+            tafs = taf_resp.json()
+            for t in tafs:
+                t_icao = t.get('icaoId', '').upper()
+                raw_taf = t.get('rawTAF', '')
+                issue_time = t.get('issueTime', 'N/A')
+                if t_icao and raw_taf:
+                    # Strip 'TAF ' prefix if it exists to match legacy formatting
+                    clean_taf = raw_taf.strip()
+                    if clean_taf.upper().startswith('TAF'):
+                        clean_taf = clean_taf[3:].strip()
+                    issue_time_formatted = str(issue_time).replace('T', ' ').replace('Z', ' UTC')
+                    taf_dict[t_icao] = (clean_taf, issue_time_formatted)
+    except Exception:
+        pass
+        
     result_text = ""
     for icao in stations_list:
         cached_data = get_cached_weather(icao)
@@ -51,9 +73,10 @@ def api_weather():
             else:
                 md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
                 
-            raw_taf = cached_data.get('raw_taf', '')
-            if raw_taf:
-                md += f"📅 **TAF** (Issued: N/A)\n```\n{raw_taf}\n```\n\n"
+            # Inject dynamically fetched live TAF
+            if icao in taf_dict:
+                clean_taf, issue_time = taf_dict[icao]
+                md += f"📅 **TAF** (Issued: {issue_time})\n```\n{clean_taf}\n```\n\n"
             else:
                 md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
                 
