@@ -124,6 +124,37 @@ def parse_raw_metar_to_bulk_record(raw_metar: str) -> dict:
     return model
 
 
+def fetch_global_tafs() -> dict:
+    """Downloads the NOAA 6-hour TAF cycle file containing ALL global TAFs.
+    Returns a dictionary mapping ICAO to raw_taf.
+    """
+    now = datetime.now(timezone.utc)
+    # TAF cycles are published at 00, 06, 12, 18
+    cycle_hour = (now.hour // 6) * 6
+    
+    taf_records = {}
+    url = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/cycles/{cycle_hour:02d}Z.TXT"
+    try:
+        resp = requests.get(url, timeout=30)
+        if resp.status_code == 200:
+            blocks = resp.text.strip().split('\n\n')
+            for block in blocks:
+                lines = block.strip().split('\n')
+                if len(lines) > 1:
+                    raw_taf = " ".join([l.strip() for l in lines[1:] if l.strip()])
+                    icao_match = re.search(r'\b([A-Z]{4})\b', raw_taf)
+                    if icao_match:
+                        icao = icao_match.group(1).upper()
+                        clean_taf = raw_taf.strip()
+                        if clean_taf.upper().startswith('TAF'):
+                            clean_taf = clean_taf[3:].strip()
+                        if icao not in taf_records:
+                            taf_records[icao] = clean_taf
+    except Exception as e:
+        print(f"Failed to fetch global TAF cycle: {e}")
+    
+    return taf_records
+
 def fetch_global_metars() -> list:
     """Downloads the NOAA hourly METAR cycle file containing ALL global METARs.
     Fetches both the current hour and previous hour to ensure we catch airports
@@ -137,6 +168,9 @@ def fetch_global_metars() -> list:
     hours_to_fetch = [current_hour, prev_hour]
     records = []
     seen_icaos = set()  # Deduplicate — keep newest only
+    
+    print("Fetching global TAF cycle...")
+    global_tafs = fetch_global_tafs()
     
     for h in hours_to_fetch:
         url = f"https://tgftp.nws.noaa.gov/data/observations/metar/cycles/{h:02d}Z.TXT"
@@ -184,7 +218,9 @@ def fetch_global_metars() -> list:
                     "model": model,
                     "history": [raw_metar]
                 }
-                records.append((icao, raw_metar, "", decoded_data))
+                
+                raw_taf = global_tafs.get(icao, "")
+                records.append((icao, raw_metar, raw_taf, decoded_data))
                 
         except Exception as e:
             print(f"[GLOBAL SYNC] Download failed for {h:02d}Z: {e}", flush=True)

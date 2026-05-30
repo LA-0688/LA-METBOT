@@ -55,8 +55,25 @@ def upsert_weather(icao, raw_metar, raw_taf, decoded_json):
                 ON CONFLICT (icao_code) 
                 DO UPDATE SET 
                     raw_metar = EXCLUDED.raw_metar,
-                    raw_taf = EXCLUDED.raw_taf,
-                    decoded_data = EXCLUDED.decoded_data,
+                    raw_taf = COALESCE(NULLIF(EXCLUDED.raw_taf, ''), airport_weather.raw_taf),
+                    decoded_data = jsonb_set(
+                        EXCLUDED.decoded_data,
+                        '{history}',
+                        (
+                            SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb) FROM (
+                                SELECT EXCLUDED.raw_metar AS elem WHERE EXCLUDED.raw_metar != ''
+                                UNION ALL
+                                SELECT elem FROM jsonb_array_elements_text(
+                                    CASE 
+                                        WHEN airport_weather.decoded_data->'history' IS NULL THEN '[]'::jsonb
+                                        WHEN jsonb_typeof(airport_weather.decoded_data->'history') != 'array' THEN '[]'::jsonb
+                                        ELSE airport_weather.decoded_data->'history'
+                                    END
+                                ) AS elem
+                                WHERE elem != EXCLUDED.raw_metar AND elem != ''
+                            ) sub LIMIT 3
+                        )::jsonb
+                    ),
                     last_updated = EXCLUDED.last_updated;
                 """
                 now = datetime.now(timezone.utc)
@@ -90,8 +107,25 @@ def bulk_upsert_weather(records):
                 ON CONFLICT (icao_code) 
                 DO UPDATE SET 
                     raw_metar = EXCLUDED.raw_metar,
-                    raw_taf = EXCLUDED.raw_taf,
-                    decoded_data = EXCLUDED.decoded_data,
+                    raw_taf = COALESCE(NULLIF(EXCLUDED.raw_taf, ''), airport_weather.raw_taf),
+                    decoded_data = jsonb_set(
+                        EXCLUDED.decoded_data,
+                        '{history}',
+                        (
+                            SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb) FROM (
+                                SELECT EXCLUDED.raw_metar AS elem WHERE EXCLUDED.raw_metar != ''
+                                UNION ALL
+                                SELECT elem FROM jsonb_array_elements_text(
+                                    CASE 
+                                        WHEN airport_weather.decoded_data->'history' IS NULL THEN '[]'::jsonb
+                                        WHEN jsonb_typeof(airport_weather.decoded_data->'history') != 'array' THEN '[]'::jsonb
+                                        ELSE airport_weather.decoded_data->'history'
+                                    END
+                                ) AS elem
+                                WHERE elem != EXCLUDED.raw_metar AND elem != ''
+                            ) sub LIMIT 3
+                        )::jsonb
+                    ),
                     last_updated = EXCLUDED.last_updated;
                 """
                 now = datetime.now(timezone.utc)
