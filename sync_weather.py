@@ -1,7 +1,10 @@
 import time
 import re
 import requests
+import json
 from datetime import datetime, timezone
+from astral.sun import sun
+from astral import LocationInfo
 from db_manager import upsert_weather, bulk_upsert_weather
 from weather_engine import get_station_details
 
@@ -155,6 +158,17 @@ def fetch_global_tafs() -> dict:
     
     return taf_records
 
+def fetch_global_airports() -> dict:
+    """Downloads the global list of airports and their coordinates."""
+    url = "https://raw.githubusercontent.com/mwgg/Airports/master/airports.json"
+    try:
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"Failed to fetch global airports list: {e}")
+    return {}
+
 def fetch_global_metars() -> list:
     """Downloads the NOAA hourly METAR cycle file containing ALL global METARs.
     Fetches both the current hour and previous hour to ensure we catch airports
@@ -171,6 +185,9 @@ def fetch_global_metars() -> list:
     
     print("Fetching global TAF cycle...")
     global_tafs = fetch_global_tafs()
+    
+    print("Fetching global airports metadata...")
+    global_airports = fetch_global_airports()
     
     for h in hours_to_fetch:
         url = f"https://tgftp.nws.noaa.gov/data/observations/metar/cycles/{h:02d}Z.TXT"
@@ -211,9 +228,40 @@ def fetch_global_metars() -> list:
                     time_str = "N/A"
 
                 model = parse_raw_metar_to_bulk_record(raw_metar)
+                # Inject airport metadata if available
+                station_name = "Unknown Station"
+                coords_str = ""
+                sun_str = ""
+                
+                airport_info = global_airports.get(icao)
+                if airport_info:
+                    try:
+                        name = airport_info.get("name", "Unknown Station")
+                        city = airport_info.get("city", "")
+                        country = airport_info.get("country", "")
+                        lat = float(airport_info.get("lat", 0.0))
+                        lon = float(airport_info.get("lon", 0.0))
+                        
+                        location_parts = [p for p in [name, city, country] if p]
+                        station_name = ", ".join(location_parts) if location_parts else "Unknown Station"
+                        
+                        lat_dir = "N" if lat >= 0 else "S"
+                        lon_dir = "E" if lon >= 0 else "W"
+                        coords_str = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
+                        
+                        loc = LocationInfo(latitude=lat, longitude=lon)
+                        s = sun(loc.observer, date=now.date())
+                        sunrise = s['sunrise'].strftime('%H:%MZ')
+                        sunset = s['sunset'].strftime('%H:%MZ')
+                        sun_str = f"🌅 {sunrise} 🌇 {sunset}"
+                    except Exception:
+                        pass
+                
                 decoded_data = {
                     "icao": icao,
-                    "name": "Unknown Station",
+                    "name": station_name,
+                    "coords": coords_str,
+                    "sun": sun_str,
                     "time": time_str,
                     "model": model,
                     "history": [raw_metar]
