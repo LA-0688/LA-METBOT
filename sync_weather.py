@@ -30,4 +30,12 @@ def cron_sync_job():
     print("Sync loop completed successfully.")
 
 if __name__ == "__main__":
-    cron_sync_job()
+    print("[SYNC PROCESS] Background worker initialized. Starting permanent loop...", flush=True)
+    while True:
+        try:
+            cron_sync_job()
+        except Exception as e:
+            print(f"[SYNC PROCESS] Fatal error in loop: {e}", flush=True)
+        
+        print("[SYNC PROCESS] Sleeping for 25 minutes before next run...", flush=True)
+        time.sleep(25 * 60)  # Wait 25 minutes before running again
