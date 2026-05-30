@@ -15,14 +15,14 @@ def get_pool():
         if db_url:
             db_url = db_url.strip()
         # Ensure minimum of 1 connection and max of 10 to avoid connection limits
-        # timeout=1.0 fails fast if pool is empty. kwargs={"connect_timeout": 1} fails fast on DB connection issue
-        _pool = ConnectionPool(db_url, min_size=1, max_size=10, timeout=1.0, kwargs={"connect_timeout": 1})
+        # timeout=0.5 fails fast if pool is empty. kwargs={"connect_timeout": 1} fails fast on DB connection issue
+        _pool = ConnectionPool(db_url, min_size=1, max_size=10, timeout=0.5, kwargs={"connect_timeout": 1})
     return _pool
 
 def get_cached_weather(icao):
     """Retrieves airport data if it exists and is less than 30 minutes old."""
     try:
-        with get_pool().connection(timeout=1.0) as conn:
+        with get_pool().connection(timeout=0.5) as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 query = "SELECT * FROM airport_weather WHERE icao_code = %s"
                 cursor.execute(query, (icao.upper(),))
@@ -47,7 +47,7 @@ def get_cached_weather(icao):
 def upsert_weather(icao, raw_metar, raw_taf, decoded_json):
     """Inserts or updates weather records cleanly using PostgreSQL UPSERT syntax."""
     try:
-        with get_pool().connection(timeout=1.0) as conn:
+        with get_pool().connection(timeout=0.5) as conn:
             with conn.cursor() as cursor:
                 query = """
                 INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
