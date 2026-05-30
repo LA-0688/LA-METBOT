@@ -2,6 +2,8 @@ import os
 import telebot
 from flask import Flask, request, jsonify, render_template
 from weather_engine import get_instant_weather, get_station_details
+from db_manager import get_cached_weather, upsert_weather
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # Load secret keys from .env
@@ -29,14 +31,38 @@ def api_weather():
     weather_data = get_instant_weather(stations)
     return jsonify({"text": weather_data})
 
-@app.route("/api/station", methods=['GET'])
+@app.route('/api/station', methods=['GET'])
 def api_station():
     """Frontend Javascript calls this to get detailed JSON for the modal."""
-    icao = request.args.get('icao', '')
-    if not icao:
-        return jsonify({"error": "No station provided"})
-    data = get_station_details(icao)
-    return jsonify(data)
+    icao = request.args.get('icao', '').strip().upper()
+    force_refresh = request.args.get('refresh', 'false').lower() == 'true'
+    
+    if not icao or len(icao) != 4:
+        return jsonify({"error": "Invalid ICAO code"}), 400
+
+    # 1. Try checking the database first (Bypassed if user clicks 'Force Refresh')
+    if not force_refresh:
+        cached_data = get_cached_weather(icao)
+        if cached_data:
+            # High-speed match found! Return the JSON payload directly
+            # We return the exact decoded_data structure so frontend modal doesn't break
+            return jsonify(cached_data['decoded_data'])
+
+    # 2. Cache Miss / Stale Data / Forced Refresh -> Execute legacy weather_engine.py
+    try:
+        live_result = get_station_details(icao) 
+        
+        # Adapt to existing get_station_details output structure
+        raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
+        raw_taf = '' # TAF is not exposed by get_station_details currently
+        decoded_payload = live_result
+        
+        # 3. Securely update the cache in the background for subsequent users
+        upsert_weather(icao, raw_metar, raw_taf, decoded_payload)
+        
+        return jsonify(decoded_payload)
+    except Exception as e:
+        return jsonify({"error": f"Failed to retrieve weather: {str(e)}"}), 500
 
 # ==========================================
 # 2. TELEGRAM WEBHOOK ENDPOINT
