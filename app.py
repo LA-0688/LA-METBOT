@@ -163,7 +163,44 @@ def handle_telegram_messages(message):
     
     print(f"\n[TELEGRAM] {pilot_name} {username} requested: {user_text}", flush=True)
     try:
-        weather_data = get_instant_weather(user_text)
+        stations_list = [s.strip().upper() for s in user_text.replace(",", " ").split() if s.strip()]
+        if not stations_list:
+            bot.reply_to(message, "Please provide at least one ICAO station code (e.g. 'VIDP').")
+            return
+
+        weather_data = ""
+        for icao in stations_list:
+            cached_data = get_cached_weather(icao)
+            if cached_data:
+                c = cached_data['decoded_data']
+                m = c.get('model', {})
+                md = f"### 📍 {c.get('icao', icao)} | {c.get('station_name', c.get('name', 'Unknown Station'))} | {c.get('coords_str', '')} | {c.get('sun_str', '')}\n\n"
+                
+                history = c.get('history', [])
+                raw_metar = history[0] if history else ""
+                if raw_metar:
+                    metar_elapsed = get_elapsed_str(raw_metar)
+                    md += f"✈️ **METAR**{metar_elapsed}\n```\n{raw_metar}\n```\n\n"
+                else:
+                    md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
+                    
+                raw_taf = cached_data.get('raw_taf', '')
+                if raw_taf:
+                    taf_elapsed = get_elapsed_str(raw_taf)
+                    md += f"📅 **TAF**{taf_elapsed}\n```\n{raw_taf}\n```\n\n"
+                else:
+                    md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
+                    
+                md += "*Decoded:*\n"
+                md += f"  🔹 **Wind**: {m.get('windStr', 'N/A')}\n"
+                md += f"  🔹 **Visibility**: {m.get('visibility', 'N/A')}\n"
+                md += f"  🔹 **Weather**: {m.get('weather', 'NONE')}\n"
+                md += f"  🔹 **Clouds**: {m.get('clouds', 'CLEAR')}\n"
+                md += f"  🔹 **Temp**: {m.get('temp', 'N/A')} | **Dew**: {m.get('dew', 'N/A')}\n"
+                md += f"  🔹 **Altimeter**: {m.get('altimeter', 'N/A')}\n\n"
+                weather_data += md
+            else:
+                weather_data += get_instant_weather(icao) + "\n\n"
         
         # Telegram limit is 4096. We split at 4000 to be safe.
         if len(weather_data) > 4000:
