@@ -423,16 +423,50 @@ def indian_bulk_sync():
 
     # ---------- Build bulk records and insert ----------
     bulk_records = []
+    global_airports = fetch_global_airports()
+    now = datetime.now(timezone.utc)
     for icao, (raw_metar, time_str) in indian_records.items():
         model = parse_raw_metar_to_bulk_record(raw_metar)
         model["weather"] = f"{model['weather']} (AMSS/AAI)" if model["weather"] != "NONE" else "AMSS/AAI"
 
+        station_name = "Unknown Station"
+        coords_str = ""
+        sun_str = ""
+        airport_info = global_airports.get(icao)
+        if airport_info:
+            try:
+                name = airport_info.get("name", "Unknown Station")
+                city = airport_info.get("city", "")
+                country = airport_info.get("country", "")
+                lat = float(airport_info.get("lat", 0.0))
+                lon = float(airport_info.get("lon", 0.0))
+                
+                location_parts = [p for p in [name, city, country] if p]
+                station_name = ", ".join(location_parts) if location_parts else "Unknown Station"
+                
+                lat_dir = "N" if lat >= 0 else "S"
+                lon_dir = "E" if lon >= 0 else "W"
+                coords_str = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
+                
+                from astral import LocationInfo
+                from astral.sun import sun
+                loc = LocationInfo(latitude=lat, longitude=lon)
+                s = sun(loc.observer, date=now.date())
+                sunrise = s['sunrise'].strftime('%H:%MZ')
+                sunset = s['sunset'].strftime('%H:%MZ')
+                sun_str = f"🌅 {sunrise} 🌇 {sunset}"
+            except Exception:
+                pass
+
         decoded_data = {
             "icao": icao,
-            "name": "Unknown Station",
+            "name": station_name,
             "time": time_str,
             "model": model,
-            "history": [raw_metar]
+            "history": [raw_metar],
+            "station_name": station_name,
+            "coords_str": coords_str,
+            "sun_str": sun_str
         }
         bulk_records.append((icao, raw_metar, "", decoded_data))
 
