@@ -10,8 +10,12 @@ from datetime import datetime, timezone
 app = Flask(__name__)
 
 # Telegram Bot Token
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8686185217:AAHn3-lNBVmFNKc4F_QCP3Gpf9nQM2rgpI4")
-bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+if TELEGRAM_TOKEN:
+    bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
+else:
+    bot = None
+    print("[WARNING] TELEGRAM_TOKEN not set. Telegram bot is disabled.", flush=True)
 
 def get_elapsed_str(raw_text):
     """Extracts DDHHMMZ from METAR or TAF and computes '(Xh Ym ago)'"""
