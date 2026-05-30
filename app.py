@@ -1,6 +1,7 @@
 import os
 import telebot
 import time
+import requests
 from flask import Flask, request, jsonify, render_template
 from weather_engine import get_instant_weather, get_station_details
 from db_manager import get_cached_weather, upsert_weather
@@ -16,6 +17,24 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 
 # Initialize the Flask Web Server
 app = Flask(__name__)
+
+# ==========================================
+# ROBUST API FETCHER
+# ==========================================
+def robust_get(url, timeout=5, retries=2, as_json=False):
+    """Fetches URLs with exponential backoff to defeat flaky network timeouts."""
+    backoff = 1
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json() if as_json else resp.text
+        except Exception:
+            if attempt == retries:
+                return None
+            time.sleep(backoff)
+            backoff *= 2
+    return None
 
 # ==========================================
 # 1. THE WEBSITE ENDPOINTS
@@ -34,27 +53,23 @@ def api_weather():
     if not stations_list:
         return jsonify({"text": "Please provide at least one station code."})
         
-    # Bulk fetch TAFs for the requested stations (extremely fast for < 20 stations)
+    # Bulk fetch TAFs for the requested stations with robust retries
     taf_dict = {}
-    try:
-        clean_stations = ",".join(stations_list)
-        taf_url = f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
-        taf_resp = requests.get(taf_url, timeout=8)
-        if taf_resp.status_code == 200:
-            tafs = taf_resp.json()
-            for t in tafs:
-                t_icao = t.get('icaoId', '').upper()
-                raw_taf = t.get('rawTAF', '')
-                issue_time = t.get('issueTime', 'N/A')
-                if t_icao and raw_taf:
-                    # Strip 'TAF ' prefix if it exists to match legacy formatting
-                    clean_taf = raw_taf.strip()
-                    if clean_taf.upper().startswith('TAF'):
-                        clean_taf = clean_taf[3:].strip()
-                    issue_time_formatted = str(issue_time).replace('T', ' ').replace('Z', ' UTC')
-                    taf_dict[t_icao] = (clean_taf, issue_time_formatted)
-    except Exception:
-        pass
+    clean_stations = ",".join(stations_list)
+    taf_url = f"https://aviationweather.gov/api/data/taf?ids={clean_stations}&format=json"
+    tafs = robust_get(taf_url, timeout=8, retries=2, as_json=True)
+    
+    if tafs:
+        for t in tafs:
+            t_icao = t.get('icaoId', '').upper()
+            raw_taf = t.get('rawTAF', '')
+            issue_time = t.get('issueTime', 'N/A')
+            if t_icao and raw_taf:
+                clean_taf = raw_taf.strip()
+                if clean_taf.upper().startswith('TAF'):
+                    clean_taf = clean_taf[3:].strip()
+                issue_time_formatted = str(issue_time).replace('T', ' ').replace('Z', ' UTC')
+                taf_dict[t_icao] = (clean_taf, issue_time_formatted)
         
     result_text = ""
     for icao in stations_list:
@@ -108,27 +123,20 @@ def api_station():
     if not force_refresh:
         cached_data = get_cached_weather(icao)
         if cached_data:
-            # High-speed match found!
             payload = cached_data['decoded_data']
             
-            # Dynamically fetch 3-hour history + TAF for the modal
-            try:
-                hist_url = f"https://aviationweather.gov/api/data/metar?ids={icao}&format=raw&hours=4"
-                hist_res = requests.get(hist_url, timeout=4)
-                if hist_res.status_code == 200:
-                    hist_lines = [l.strip() for l in hist_res.text.strip().split('\n') if l.strip()]
-                    if hist_lines:
-                        payload['history'] = hist_lines[:3]
-                
-                taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
-                taf_res = requests.get(taf_url, timeout=4)
-                if taf_res.status_code == 200:
-                    taf_text = taf_res.text.strip()
-                    if taf_text:
-                        # Prepend the TAF so it shows up at the top of the RECENT REPORTS modal
-                        payload['history'].insert(0, f"TAF {taf_text}")
-            except Exception:
-                pass
+            # Dynamically fetch 3-hour history + TAF for the modal with robust retries
+            hist_url = f"https://aviationweather.gov/api/data/metar?ids={icao}&format=raw&hours=4"
+            hist_text = robust_get(hist_url, timeout=4, retries=1)
+            if hist_text:
+                hist_lines = [l.strip() for l in hist_text.strip().split('\n') if l.strip()]
+                if hist_lines:
+                    payload['history'] = hist_lines[:3]
+            
+            taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
+            taf_text = robust_get(taf_url, timeout=4, retries=1)
+            if taf_text and taf_text.strip():
+                payload['history'].insert(0, f"TAF {taf_text.strip()}")
                 
             return jsonify(payload)
 
@@ -138,26 +146,21 @@ def api_station():
         
         # Adapt to existing get_station_details output structure
         raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
-        raw_taf = '' # TAF is not exposed by get_station_details currently
+        raw_taf = ''
         decoded_payload = live_result
         
         # Dynamically inject TAF and 3-hour history to live scrape too
-        try:
-            hist_url = f"https://aviationweather.gov/api/data/metar?ids={icao}&format=raw&hours=4"
-            hist_res = requests.get(hist_url, timeout=4)
-            if hist_res.status_code == 200:
-                hist_lines = [l.strip() for l in hist_res.text.strip().split('\n') if l.strip()]
-                if hist_lines:
-                    decoded_payload['history'] = hist_lines[:3]
-            
-            taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
-            taf_res = requests.get(taf_url, timeout=4)
-            if taf_res.status_code == 200:
-                taf_text = taf_res.text.strip()
-                if taf_text:
-                    decoded_payload['history'].insert(0, f"TAF {taf_text}")
-        except Exception:
-            pass
+        hist_url = f"https://aviationweather.gov/api/data/metar?ids={icao}&format=raw&hours=4"
+        hist_text = robust_get(hist_url, timeout=4, retries=1)
+        if hist_text:
+            hist_lines = [l.strip() for l in hist_text.strip().split('\n') if l.strip()]
+            if hist_lines:
+                decoded_payload['history'] = hist_lines[:3]
+        
+        taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
+        taf_text = robust_get(taf_url, timeout=4, retries=1)
+        if taf_text and taf_text.strip():
+            decoded_payload['history'].insert(0, f"TAF {taf_text.strip()}")
         
         # 3. Securely update the cache in the background for subsequent users
         upsert_weather(icao, raw_metar, raw_taf, decoded_payload)
@@ -169,7 +172,6 @@ def api_station():
 # ==========================================
 # 2. TELEGRAM WEBHOOK ENDPOINT
 # ==========================================
-# We use the token in the URL so only Telegram knows where to send data securely
 @app.route(f"/{TELEGRAM_TOKEN}", methods=['POST'])
 def telegram_webhook():
     """Telegram servers will send POST requests here when someone texts the bot."""
