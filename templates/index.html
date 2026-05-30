@@ -219,39 +219,26 @@
                 // Calculate METAR elapsed time from the raw METAR string (Ground Truth)
                 const metarCodeMatch = parsedHTML.match(/<code>([\s\S]*?)<\/code>/);
                 const rawMetarStr = metarCodeMatch ? metarCodeMatch[1] : '';
+                // Extract dynamically calculated elapsed times directly from the API Markdown
                 let metarTime = 'N/A';
-                
-                if (rawMetarStr) {
-                    // Extract DDHHMMZ pattern (e.g., 181100Z)
-                    const match = rawMetarStr.match(/\b\d{2}(\d{2})(\d{2})Z\b/);
-                    if (match) {
-                        const hour = parseInt(match[1]);
-                        const min = parseInt(match[2]);
-                        
-                        const now = new Date();
-                        const nowUtcHour = now.getUTCHours();
-                        const nowUtcMin = now.getUTCMinutes();
-                        
-                        let diff = (nowUtcHour * 60 + nowUtcMin) - (hour * 60 + min);
-                        if (diff < 0) diff += 24 * 60; // Handle day wrap
-                        
-                        metarTime = formatElapsed(diff);
-                    }
+                const metarTimeMatch = fullText.match(/✈️ \*\*METAR\*\* \((.*?)\)/);
+                if (metarTimeMatch) {
+                    metarTime = metarTimeMatch[1];
                 }
 
-                // Calculate TAF elapsed time from the issued time
-                const tafTimeMatch = fullText.match(/📅 \*\*TAF\*\* \(Issued: (.*?)\)/);
-                const tafTimeStr = tafTimeMatch ? tafTimeMatch[1] : '';
                 let tafTime = 'N/A';
-                
-                if (tafTimeStr) {
-                    try {
-                        const tafDate = new Date(tafTimeStr.replace(' UTC', 'Z').replace(' ', 'T'));
-                        const now = new Date();
-                        const elapsedMin = Math.floor((now - tafDate) / 60000);
-                        tafTime = formatElapsed(elapsedMin);
-                    } catch (e) {
-                        tafTime = 'N/A';
+                const tafTimeMatch = fullText.match(/📅 \*\*TAF\*\* \((.*?)\)/);
+                if (tafTimeMatch) {
+                    tafTime = tafTimeMatch[1];
+                } else {
+                    // Legacy fallback handling for Issued: format
+                    const legacyTafMatch = fullText.match(/📅 \*\*TAF\*\* \(Issued: (.*?)\)/);
+                    if (legacyTafMatch) {
+                        try {
+                            const tafDate = new Date(legacyTafMatch[1].replace(' UTC', 'Z').replace(' ', 'T'));
+                            const elapsedMin = Math.floor((new Date() - tafDate) / 60000);
+                            tafTime = formatElapsed(elapsedMin);
+                        } catch (e) { tafTime = 'N/A'; }
                     }
                 }
 
