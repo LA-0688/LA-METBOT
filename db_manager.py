@@ -12,6 +12,8 @@ def get_pool():
     global _pool
     if _pool is None:
         db_url = os.environ.get("DATABASE_URL")
+        if db_url:
+            db_url = db_url.strip()
         # Ensure minimum of 1 connection and max of 10 to avoid connection limits
         _pool = ConnectionPool(db_url, min_size=1, max_size=10)
     return _pool
