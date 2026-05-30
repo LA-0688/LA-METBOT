@@ -126,73 +126,70 @@ def parse_raw_metar_to_bulk_record(raw_metar: str) -> dict:
 
 def fetch_global_metars() -> list:
     """Downloads the NOAA hourly METAR cycle file containing ALL global METARs.
+    Fetches both the current hour and previous hour to ensure we catch airports
+    that update at XX:50 (which roll into the previous hour's file).
     Returns a list of tuples: (icao, raw_metar, obs_time_str, decoded_data_dict)
     """
-    hour = datetime.now(timezone.utc).hour
-    url = f"https://tgftp.nws.noaa.gov/data/observations/metar/cycles/{hour:02d}Z.TXT"
-
-    print(f"[GLOBAL SYNC] Downloading global METAR dump from {url}...", flush=True)
-    try:
-        resp = requests.get(url, timeout=30)
-        if resp.status_code != 200:
-            print(f"[GLOBAL SYNC] NOAA returned status {resp.status_code}", flush=True)
-            return []
-    except Exception as e:
-        print(f"[GLOBAL SYNC] Download failed: {e}", flush=True)
-        return []
-
-    lines = resp.text.strip().split('\n')
-    print(f"[GLOBAL SYNC] Downloaded {len(lines)} lines. Parsing...", flush=True)
-
+    now = datetime.now(timezone.utc)
+    current_hour = now.hour
+    prev_hour = (current_hour - 1) % 24
+    
+    hours_to_fetch = [current_hour, prev_hour]
     records = []
-    seen_icaos = set()  # Deduplicate — NOAA file has duplicates, keep only the first (newest)
-    current_time_str = ""
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        # Time header lines look like: 2026/05/30 17:15
-        if re.match(r'^\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}$', line):
-            current_time_str = line
-            continue
-
-        # METAR lines start with a 4-letter ICAO code
-        icao_match = re.match(r'^([A-Z]{4})\s', line)
-        if not icao_match:
-            continue
-
-        icao = icao_match.group(1)
-
-        # Skip duplicates — first occurrence is the newest
-        if icao in seen_icaos:
-            continue
-        seen_icaos.add(icao)
-
-        raw_metar = line.strip()
-
-        # Parse the observation time
+    seen_icaos = set()  # Deduplicate — keep newest only
+    
+    for h in hours_to_fetch:
+        url = f"https://tgftp.nws.noaa.gov/data/observations/metar/cycles/{h:02d}Z.TXT"
+        print(f"[GLOBAL SYNC] Downloading global METAR dump from {url}...", flush=True)
         try:
-            obs_dt = datetime.strptime(current_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
-            time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
-        except:
-            time_str = "N/A"
+            resp = requests.get(url, timeout=30)
+            if resp.status_code != 200:
+                print(f"[GLOBAL SYNC] NOAA returned status {resp.status_code} for {h:02d}Z", flush=True)
+                continue
+                
+            lines = resp.text.strip().split('\n')
+            current_time_str = ""
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
 
-        # Decode the raw METAR into the visual grid JSON
-        model = parse_raw_metar_to_bulk_record(raw_metar)
+                if re.match(r'^\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}$', line):
+                    current_time_str = line
+                    continue
 
-        decoded_data = {
-            "icao": icao,
-            "name": "Unknown Station",  # Station names are filled by the frontend
-            "time": time_str,
-            "model": model,
-            "history": [raw_metar]
-        }
+                icao_match = re.match(r'^([A-Z]{4})\s', line)
+                if not icao_match:
+                    continue
 
-        records.append((icao, raw_metar, "", decoded_data))
+                icao = icao_match.group(1)
+                if icao in seen_icaos:
+                    continue
+                seen_icaos.add(icao)
 
-    print(f"[GLOBAL SYNC] Parsed {len(records)} unique airports.", flush=True)
+                raw_metar = line.strip()
+
+                try:
+                    obs_dt = datetime.strptime(current_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
+                    time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+                except:
+                    time_str = "N/A"
+
+                model = parse_raw_metar_to_bulk_record(raw_metar)
+                decoded_data = {
+                    "icao": icao,
+                    "name": "Unknown Station",
+                    "time": time_str,
+                    "model": model,
+                    "history": [raw_metar]
+                }
+                records.append((icao, raw_metar, "", decoded_data))
+                
+        except Exception as e:
+            print(f"[GLOBAL SYNC] Download failed for {h:02d}Z: {e}", flush=True)
+
+    print(f"[GLOBAL SYNC] Parsed {len(records)} unique airports globally.", flush=True)
     return records
 
 
