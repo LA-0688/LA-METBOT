@@ -1,11 +1,9 @@
 import os
 import telebot
-import threading
 import time
 from flask import Flask, request, jsonify, render_template
 from weather_engine import get_instant_weather, get_station_details
 from db_manager import get_cached_weather, upsert_weather
-from sync_weather import cron_sync_job
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
@@ -19,11 +17,25 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 # Initialize the Flask Web Server
 app = Flask(__name__)
 
+_thread_initialized = False
+
+@app.before_request
+def initialize_background_sync():
+    global _thread_initialized
+    if not _thread_initialized:
+        import threading
+        from sync_weather import cron_sync_job
+        
+        sync_thread = threading.Thread(target=start_sync_loop, daemon=True)
+        sync_thread.start()
+        _thread_initialized = True
+
 # ==========================================
 # NEW: THE ZERO-COST BACKGROUND TIMER LOOP
 # ==========================================
 def start_sync_loop():
     """Runs a permanent loop in a separate thread every 25 minutes."""
+    from sync_weather import cron_sync_job
     print("[SYNC] Background synchronization thread started successfully!", flush=True)
     while True:
         try:
@@ -128,10 +140,6 @@ def handle_telegram_messages(message):
         bot.reply_to(message, f"Sorry, I ran into an error: {str(e)}")
 
 if __name__ == "__main__":
-    # Start the background sync thread BEFORE booting the web server
-    sync_thread = threading.Thread(target=start_sync_loop, daemon=True)
-    sync_thread.start()
-
     # When deployed on Render, the PORT is provided by the environment
     port = int(os.environ.get('PORT', 5000))
     app.run(host="0.0.0.0", port=port)
