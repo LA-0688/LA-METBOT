@@ -136,7 +136,7 @@ def api_station():
             taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
             taf_text = robust_get(taf_url, timeout=4, retries=1)
             if taf_text and taf_text.strip():
-                payload['history'].insert(0, f"TAF {taf_text.strip()}")
+                payload['history'].insert(0, taf_text.strip())
                 
             return jsonify(payload)
 
@@ -160,7 +160,7 @@ def api_station():
         taf_url = f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw"
         taf_text = robust_get(taf_url, timeout=4, retries=1)
         if taf_text and taf_text.strip():
-            decoded_payload['history'].insert(0, f"TAF {taf_text.strip()}")
+            decoded_payload['history'].insert(0, taf_text.strip())
         
         # 3. Securely update the cache in the background for subsequent users
         upsert_weather(icao, raw_metar, raw_taf, decoded_payload)
