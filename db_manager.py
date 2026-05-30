@@ -67,3 +67,45 @@ def upsert_weather(icao, raw_metar, raw_taf, decoded_json):
                 # Note: The context manager (with conn:) automatically commits on success
     except Exception as e:
         print(f"Database write error: {e}")
+
+def bulk_upsert_weather(records):
+    """Bulk inserts/updates thousands of weather records in a single transaction.
+    
+    Args:
+        records: list of tuples (icao_code, raw_metar, raw_taf, decoded_json_dict)
+    
+    Returns:
+        Number of records successfully upserted, or 0 on failure.
+    """
+    if not records:
+        return 0
+    
+    try:
+        # Use a longer timeout for bulk operations (up to 30s for thousands of rows)
+        with get_pool().connection(timeout=10.0) as conn:
+            with conn.cursor() as cursor:
+                query = """
+                INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (icao_code) 
+                DO UPDATE SET 
+                    raw_metar = EXCLUDED.raw_metar,
+                    raw_taf = EXCLUDED.raw_taf,
+                    decoded_data = EXCLUDED.decoded_data,
+                    last_updated = EXCLUDED.last_updated;
+                """
+                now = datetime.now(timezone.utc)
+                
+                # Build parameter rows with Jsonb wrapper for each record
+                params = [
+                    (icao.upper(), raw_metar, raw_taf, Jsonb(decoded_json), now)
+                    for icao, raw_metar, raw_taf, decoded_json in records
+                ]
+                
+                cursor.executemany(query, params)
+                
+        print(f"[BULK DB] Successfully upserted {len(records)} airport records.", flush=True)
+        return len(records)
+    except Exception as e:
+        print(f"[BULK DB] Bulk write error: {e}", flush=True)
+        return 0
