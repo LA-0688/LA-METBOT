@@ -3,6 +3,8 @@ import telebot
 from flask import Flask, request, jsonify, render_template
 from weather_engine import get_instant_weather, get_station_details
 from db_manager import get_cached_weather, upsert_weather
+import re
+from datetime import datetime, timezone
 
 # Initialize the Flask Web Server
 app = Flask(__name__)
@@ -10,6 +12,34 @@ app = Flask(__name__)
 # Telegram Bot Token
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
+
+def get_elapsed_str(raw_text):
+    """Extracts DDHHMMZ from METAR or TAF and computes '(Xh Ym ago)'"""
+    if not raw_text:
+        return ""
+    match = re.search(r'\b(\d{2})(\d{2})(\d{2})Z\b', raw_text)
+    if not match:
+        return ""
+    day, hour, minute = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    now = datetime.now(timezone.utc)
+    month, year = now.month, now.year
+    if day > now.day + 15:
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    try:
+        obs_time = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+        diff = now - obs_time
+        mins = int(diff.total_seconds() / 60)
+        if mins < 0:
+            return ""
+        if mins < 60:
+            return f" ({mins}m ago)"
+        else:
+            return f" ({mins//60}h {mins%60}m ago)"
+    except Exception:
+        return ""
 
 # ==========================================
 # 1. THE WEBSITE ENDPOINTS
@@ -41,14 +71,16 @@ def api_weather():
             history = c.get('history', [])
             raw_metar = history[0] if history else ""
             if raw_metar:
-                md += f"✈️ **METAR**\n```\n{raw_metar}\n```\n\n"
+                metar_elapsed = get_elapsed_str(raw_metar)
+                md += f"✈️ **METAR**{metar_elapsed}\n```\n{raw_metar}\n```\n\n"
             else:
                 md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
                 
             # Read TAF directly from database
             raw_taf = cached_data.get('raw_taf', '')
             if raw_taf:
-                md += f"📅 **TAF**\n```\n{raw_taf}\n```\n\n"
+                taf_elapsed = get_elapsed_str(raw_taf)
+                md += f"📅 **TAF**{taf_elapsed}\n```\n{raw_taf}\n```\n\n"
             else:
                 md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
                 
