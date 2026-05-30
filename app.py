@@ -17,35 +17,6 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 # Initialize the Flask Web Server
 app = Flask(__name__)
 
-_thread_initialized = False
-
-@app.before_request
-def initialize_background_sync():
-    global _thread_initialized
-    if not _thread_initialized:
-        import threading
-        from sync_weather import cron_sync_job
-        
-        sync_thread = threading.Thread(target=start_sync_loop, daemon=True)
-        sync_thread.start()
-        _thread_initialized = True
-
-# ==========================================
-# NEW: THE ZERO-COST BACKGROUND TIMER LOOP
-# ==========================================
-def start_sync_loop():
-    """Runs a permanent loop in a separate thread every 25 minutes."""
-    from sync_weather import cron_sync_job
-    print("[SYNC] Background synchronization thread started successfully!", flush=True)
-    while True:
-        try:
-            cron_sync_job()  # Run your sync script logic
-        except Exception as e:
-            print(f"[SYNC ERROR] Job failed: {e}", flush=True)
-        
-        print("[SYNC] Sleeping for 25 minutes...", flush=True)
-        time.sleep(25 * 60)  # Wait 25 minutes before running again
-
 # ==========================================
 # 1. THE WEBSITE ENDPOINTS
 # ==========================================
