@@ -350,25 +350,9 @@ def indian_bulk_sync():
         for text in executor.map(fetch_amss, amss_urls):
             combined_text += text
 
-    # ---------- Source 2: AAI Portal (aim-india.aai.aero) ----------
-    print("[INDIA SYNC] Scraping AAI portal...", flush=True)
-    try:
-        session = requests.Session()
-        session.mount('https://', TLSAdapter())
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        }
-        session.get("https://aim-india.aai.aero/", headers=headers, timeout=5)
-        aai_resp = session.get("https://aim-india.aai.aero/eaip/metar_taf.php", headers=headers, timeout=10)
-        if aai_resp.status_code == 200:
-            aai_text = BeautifulSoup(aai_resp.text, "html.parser").get_text()
-            combined_text += "\n" + aai_text
-            print("[INDIA SYNC] AAI portal data received.", flush=True)
-        else:
-            print(f"[INDIA SYNC] AAI portal returned status {aai_resp.status_code}.", flush=True)
-    except Exception as e:
-        print(f"[INDIA SYNC] AAI portal unavailable: {e}", flush=True)
+    # ---------- Source 2: AAI Portal (DEAD) ----------
+    # The aim-india.aai.aero portal is dead (404), so we skip it.
+    # We will use Ogimet below to fetch TAFs for the ICAOs we extracted from AMSS.
 
     # ---------- Extract ALL Indian METARs and TAFs from combined text ----------
     # Indian ICAO prefixes: VA (West), VE (East), VI (North), VO (South)
@@ -412,20 +396,59 @@ def indian_bulk_sync():
 
         indian_records[icao] = (raw, time_str)
 
-    print(f"[INDIA SYNC] Extracted {len(indian_records)} METARs and {len(indian_tafs)} TAFs.", flush=True)
+    print(f"[INDIA SYNC] Extracted {len(indian_records)} unique Indian METARs.", flush=True)
 
-    # Combine all unique ICAOs that have EITHER a METAR or a TAF
-    all_indian_icaos = set(indian_records.keys()).union(set(indian_tafs.keys()))
-
-    if not all_indian_icaos:
-        print("[INDIA SYNC] No Indian data found. Skipping bulk insert.", flush=True)
+    if not indian_records:
+        print("[INDIA SYNC] No Indian METARs found. Skipping bulk insert.", flush=True)
         return
+
+    # ---------- Source 3: Ogimet Bulk TAF Ingestion ----------
+    # To prevent IP bans, we ONLY scrape Ogimet for Indian stations that are MISSING from NOAA's global feed.
+    print("[INDIA SYNC] Fetching global TAF list to identify missing domestic TAFs...", flush=True)
+    global_tafs = fetch_global_tafs()
+    missing_taf_icaos = [icao for icao in indian_records.keys() if icao not in global_tafs]
+    
+    print(f"[INDIA SYNC] {len(missing_taf_icaos)} Indian stations missing global TAFs. Fetching from Ogimet...", flush=True)
+    
+    def fetch_ogimet_taf_for_icao(icao_code):
+        try:
+            now = datetime.now(timezone.utc)
+            from datetime import timedelta
+            yesterday = now - timedelta(days=1)
+            url = (
+                f"https://ogimet.com/display_metars2.php?lang=en&lugar={icao_code}"
+                f"&tipo=ALL&ord=REV&nil=SI&fmt=html"
+                f"&ano={yesterday.year}&mes={yesterday.month:02d}&day={yesterday.day:02d}"
+                f"&hora=00&anof={now.year}&mesf={now.month:02d}"
+                f"&dayf={now.day:02d}&horaf={now.hour:02d}&minf=59&send=send"
+            )
+            r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                text = BeautifulSoup(r.text, 'html.parser').get_text()
+                pattern = rf"\b({icao_code})\s+([0-9]{{6}}Z[^=\n]*)"
+                matches = list(re.finditer(pattern, text, re.IGNORECASE))
+                for m in matches:
+                    raw = m.group(0).strip().rstrip('=')
+                    if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
+                        clean_taf = raw if raw.startswith('TAF') else 'TAF ' + raw
+                        return icao_code, clean_taf
+        except Exception:
+            pass
+        return icao_code, ""
+
+    if missing_taf_icaos:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            for icao_code, taf_str in executor.map(fetch_ogimet_taf_for_icao, missing_taf_icaos):
+                if taf_str:
+                    indian_tafs[icao_code] = taf_str
+
+    print(f"[INDIA SYNC] Successfully retrieved {len(indian_tafs)} domestic TAFs from Ogimet.", flush=True)
 
     # ---------- Build bulk records and insert ----------
     bulk_records = []
     global_airports = fetch_global_airports()
     now = datetime.now(timezone.utc)
-    for icao in all_indian_icaos:
+    for icao in indian_records.keys():
         raw_metar, time_str = indian_records.get(icao, ("", "N/A"))
         model = parse_raw_metar_to_bulk_record(raw_metar)
 
