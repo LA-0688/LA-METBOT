@@ -312,7 +312,7 @@ def global_bulk_sync():
             print(f"[GLOBAL SYNC] Batch {i // BULK_BATCH_SIZE + 1}: {count} records written.", flush=True)
         time.sleep(0.5)  # Brief pause between batches
 
-    print(f"[GLOBAL SYNC] ✅ Total: {total_inserted} airports cached worldwide.", flush=True)
+    print(f"[GLOBAL SYNC] [SUCCESS] Total: {total_inserted} airports cached worldwide.", flush=True)
     return total_inserted
 
 
@@ -531,7 +531,7 @@ def indian_bulk_sync():
 
     # Bulk write all Indian airports in one transaction
     count = bulk_upsert_weather(bulk_records)
-    print(f"[INDIA SYNC] ✅ {count} Indian airports bulk-cached with domestic AMSS/AAI data.", flush=True)
+    print(f"[INDIA SYNC] [SUCCESS] {count} Indian airports bulk-cached with domestic AMSS/AAI data.", flush=True)
 
 
 def full_sync_cycle():
