@@ -1078,7 +1078,6 @@ def get_station_details(station: str) -> dict:
                 aai_metar, aai_dt = fetch_live_aai_weather(station)
                 if aai_metar and aai_dt:
                     model_data = parse_raw_metar_to_dict(aai_metar)
-                    model_data["weather"] = f"{model_data['weather']} (AAI Portal)"
                     return {
                         "icao": station,
                         "name": station_name,
@@ -1098,7 +1097,6 @@ def get_station_details(station: str) -> dict:
                         obs_dt = parse_amss_time(amss_metar)
                         if obs_dt:
                             model_data = parse_raw_metar_to_dict(amss_metar)
-                            model_data["weather"] = f"{model_data['weather']} (AMSS)"
                             return {
                                 "icao": station,
                                 "name": station_name,
@@ -1114,7 +1112,6 @@ def get_station_details(station: str) -> dict:
                 og_metar, og_dt = fetch_ogimet_metar(station)
                 if og_metar and og_dt:
                     model_data = parse_raw_metar_to_dict(og_metar)
-                    model_data["weather"] = f"{model_data['weather']} (Ogimet)"
                     return {
                         "icao": station,
                         "name": station_name,
@@ -1132,7 +1129,6 @@ def get_station_details(station: str) -> dict:
                     # Clean validity period (e.g. 2218/2400) to prevent visibility/wind parsing corruption
                     cleaned_taf = re.sub(r'\b[0-9]{4}/[0-9]{4}\b', '', aai_taf).strip()
                     model_data = parse_raw_metar_to_dict(cleaned_taf)
-                    model_data["weather"] = f"{model_data['weather']} (AAI TAF Fallback)"
                     return {
                         "icao": station,
                         "name": station_name,
@@ -1150,7 +1146,6 @@ def get_station_details(station: str) -> dict:
                     # Clean validity period (e.g. 2218/2400) to prevent visibility/wind parsing corruption
                     cleaned_taf = re.sub(r'\b[0-9]{4}/[0-9]{4}\b', '', og_taf).strip()
                     model_data = parse_raw_metar_to_dict(cleaned_taf)
-                    model_data["weather"] = f"{model_data['weather']} (Ogimet TAF Fallback)"
                     return {
                         "icao": station,
                         "name": station_name,
@@ -1195,6 +1190,9 @@ def get_station_details(station: str) -> dict:
                                 if item.get('clouds'):
                                     cloud_full = " ".join([f"{c.get('code','')} {c.get('base_feet_agl','')}".strip() for c in item['clouds']])
                                     
+                                cwx_model = parse_raw_metar_to_dict(item.get('raw_text', ''))
+                                wx_str = cwx_model.get("weather", "NONE")
+                                    
                                 return {
                                     "icao": station,
                                     "name": station_name,
@@ -1204,10 +1202,10 @@ def get_station_details(station: str) -> dict:
                                         "dew": f"{d_val}°C" if d_val != 'N/A' else "N/A",
                                         "windDir": wdir,
                                         "windSpeed": wspd,
-                                        "windStr": f"{wdir}° / {wspd} KT (CheckWX)",
+                                        "windStr": f"{wdir}° / {wspd} KT",
                                         "visibility": vis_str,
                                         "clouds": cloud_full,
-                                        "weather": "CheckWX Fallback",
+                                        "weather": wx_str,
                                         "altimeter": qnh_str
                                     },
                                     "history": [item.get('raw_text', '')]
@@ -1249,6 +1247,9 @@ def get_station_details(station: str) -> dict:
                         if a_data.get('clouds'):
                             cloud_full = " ".join([f"{c['type']}{str(c['altitude']).zfill(3)}" for c in a_data['clouds'] if 'altitude' in c])
                             
+                        avwx_model = parse_raw_metar_to_dict(a_data.get('raw', ''))
+                        wx_str = avwx_model.get("weather", "NONE")
+                            
                         return {
                             "icao": station,
                             "name": station_name,
@@ -1258,10 +1259,10 @@ def get_station_details(station: str) -> dict:
                                 "dew": f"{d_val}°C" if d_val != 'N/A' else "N/A",
                                 "windDir": wdir,
                                 "windSpeed": wspd,
-                                "windStr": f"{wdir}° / {wspd} KT (AVWX)",
+                                "windStr": f"{wdir}° / {wspd} KT",
                                 "visibility": vis_str,
                                 "clouds": cloud_full,
-                                "weather": "AVWX Fallback",
+                                "weather": wx_str,
                                 "altimeter": qnh_str
                             },
                             "history": [a_data.get('raw', '')]
