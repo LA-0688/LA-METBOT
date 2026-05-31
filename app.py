@@ -117,11 +117,8 @@ def api_station():
         cached_data = get_cached_weather(icao)
         if cached_data:
             payload = dict(cached_data['decoded_data'])
-            raw_taf = cached_data.get('raw_taf', '')
-            if raw_taf:
-                # Prepend the TAF so it shows up at the top of the RECENT REPORTS modal
-                payload['history'] = list(payload.get('history', []))
-                payload['history'].insert(0, raw_taf.strip())
+            # Only keep the last three METARs
+            payload['history'] = list(payload.get('history', []))[:3]
                 
             return jsonify(payload)
 
@@ -133,6 +130,9 @@ def api_station():
         raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
         raw_taf = '' # TAF is not exposed by get_station_details currently
         decoded_payload = live_result
+        
+        # Only keep the last three METARs
+        decoded_payload['history'] = list(decoded_payload.get('history', []))[:3]
         
         # 3. Securely update the cache in the background for subsequent users
         payload_for_db = dict(decoded_payload)
