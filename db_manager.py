@@ -144,3 +144,35 @@ def bulk_upsert_weather(records):
     except Exception as e:
         print(f"[BULK DB] Bulk write error: {e}", flush=True)
         return 0
+
+def get_weather_batch(icao_list):
+    """
+    LAYER 1 READER: Fetches the absolute latest weather for multiple airports instantly.
+    """
+    if not icao_list:
+        return {}
+        
+    try:
+        # Use our 2-second timeout defensive pool
+        with get_pool().connection(timeout=2.0) as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                # Create a parameterized query for multiple airports
+                placeholders = ','.join(['%s'] * len(icao_list))
+                query = f"SELECT * FROM airport_weather WHERE icao_code IN ({placeholders})"
+                
+                cursor.execute(query, tuple(icao_list))
+                results = cursor.fetchall()
+                
+                # Format into a clean dictionary where the ICAO code is the key
+                weather_data = {}
+                for row in results:
+                    weather_data[row['icao_code']] = {
+                        "raw_metar": row.get('raw_metar', ''),
+                        "raw_taf": row.get('raw_taf', ''),
+                        "decoded": row.get('decoded_data', {}),
+                        "last_updated": row['last_updated'].isoformat()
+                    }
+                return weather_data
+    except Exception as e:
+        print(f"[LAYER 1 DB ERROR] Failed to fetch weather batch: {e}")
+        return {}
