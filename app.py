@@ -145,83 +145,84 @@ def api_station():
 # ==========================================
 # 2. TELEGRAM WEBHOOK ENDPOINT
 # ==========================================
-@app.route(f"/{TELEGRAM_TOKEN}", methods=['POST'])
-def telegram_webhook():
-    """Telegram servers will send POST requests here when someone texts the bot."""
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return "OK", 200
-    return "Forbidden", 403
+if bot:
+    @app.route(f"/{TELEGRAM_TOKEN}", methods=['POST'])
+    def telegram_webhook():
+        """Telegram servers will send POST requests here when someone texts the bot."""
+        if request.headers.get('content-type') == 'application/json':
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+            return "OK", 200
+        return "Forbidden", 403
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "✈️ Welcome! Text me any ICAO airport codes (like 'CYYZ' or 'KLAX KJFK') and I will instantly fetch the decoded weather for you!")
+    @bot.message_handler(commands=['start', 'help'])
+    def send_welcome(message):
+        bot.reply_to(message, "✈️ Welcome! Text me any ICAO airport codes (like 'CYYZ' or 'KLAX KJFK') and I will instantly fetch the decoded weather for you!")
 
-@bot.message_handler(func=lambda message: True)
-def handle_telegram_messages(message):
-    user_text = message.text
-    pilot_name = message.from_user.first_name or "A Pilot"
-    username = f"(@{message.from_user.username})" if message.from_user.username else ""
-    
-    print(f"\n[TELEGRAM] {pilot_name} {username} requested: {user_text}", flush=True)
-    try:
-        stations_list = [s.strip().upper() for s in user_text.replace(",", " ").split() if s.strip()]
-        if not stations_list:
-            bot.reply_to(message, "Please provide at least one ICAO station code (e.g. 'VIDP').")
-            return
-
-        weather_data = ""
-        for icao in stations_list:
-            cached_data = get_cached_weather(icao)
-            if cached_data:
-                c = cached_data['decoded_data']
-                m = c.get('model', {})
-                md = f"### 📍 {c.get('icao', icao)} | {c.get('station_name', c.get('name', 'Unknown Station'))} | {c.get('coords_str', '')} | {c.get('sun_str', '')}\n\n"
-                
-                history = c.get('history', [])
-                raw_metar = history[0] if history else ""
-                if raw_metar:
-                    metar_elapsed = get_elapsed_str(raw_metar)
-                    md += f"✈️ **METAR**{metar_elapsed}\n```\n{raw_metar}\n```\n\n"
-                else:
-                    md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
-                    
-                raw_taf = cached_data.get('raw_taf', '')
-                if raw_taf:
-                    taf_elapsed = get_elapsed_str(raw_taf)
-                    md += f"📅 **TAF**{taf_elapsed}\n```\n{raw_taf}\n```\n\n"
-                else:
-                    md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
-                    
-                md += "*Decoded:*\n"
-                md += f"  🔹 **Wind**: {m.get('windStr', 'N/A')}\n"
-                md += f"  🔹 **Visibility**: {m.get('visibility', 'N/A')}\n"
-                md += f"  🔹 **Weather**: {m.get('weather', 'NONE')}\n"
-                md += f"  🔹 **Clouds**: {m.get('clouds', 'CLEAR')}\n"
-                md += f"  🔹 **Temp**: {m.get('temp', 'N/A')} | **Dew**: {m.get('dew', 'N/A')}\n"
-                md += f"  🔹 **Altimeter**: {m.get('altimeter', 'N/A')}\n\n"
-                weather_data += md
-            else:
-                weather_data += get_instant_weather(icao) + "\n\n"
+    @bot.message_handler(func=lambda message: True)
+    def handle_telegram_messages(message):
+        user_text = message.text
+        pilot_name = message.from_user.first_name or "A Pilot"
+        username = f"(@{message.from_user.username})" if message.from_user.username else ""
         
-        # Telegram limit is 4096. We split at 4000 to be safe.
-        if len(weather_data) > 4000:
-            chunks = [weather_data[i:i+4000] for i in range(0, len(weather_data), 4000)]
-            for chunk in chunks:
+        print(f"\n[TELEGRAM] {pilot_name} {username} requested: {user_text}", flush=True)
+        try:
+            stations_list = [s.strip().upper() for s in user_text.replace(",", " ").split() if s.strip()]
+            if not stations_list:
+                bot.reply_to(message, "Please provide at least one ICAO station code (e.g. 'VIDP').")
+                return
+
+            weather_data = ""
+            for icao in stations_list:
+                cached_data = get_cached_weather(icao)
+                if cached_data:
+                    c = cached_data['decoded_data']
+                    m = c.get('model', {})
+                    md = f"### 📍 {c.get('icao', icao)} | {c.get('station_name', c.get('name', 'Unknown Station'))} | {c.get('coords_str', '')} | {c.get('sun_str', '')}\n\n"
+                    
+                    history = c.get('history', [])
+                    raw_metar = history[0] if history else ""
+                    if raw_metar:
+                        metar_elapsed = get_elapsed_str(raw_metar)
+                        md += f"✈️ **METAR**{metar_elapsed}\n```\n{raw_metar}\n```\n\n"
+                    else:
+                        md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
+                        
+                    raw_taf = cached_data.get('raw_taf', '')
+                    if raw_taf:
+                        taf_elapsed = get_elapsed_str(raw_taf)
+                        md += f"📅 **TAF**{taf_elapsed}\n```\n{raw_taf}\n```\n\n"
+                    else:
+                        md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
+                        
+                    md += "*Decoded:*\n"
+                    md += f"  🔹 **Wind**: {m.get('windStr', 'N/A')}\n"
+                    md += f"  🔹 **Visibility**: {m.get('visibility', 'N/A')}\n"
+                    md += f"  🔹 **Weather**: {m.get('weather', 'NONE')}\n"
+                    md += f"  🔹 **Clouds**: {m.get('clouds', 'CLEAR')}\n"
+                    md += f"  🔹 **Temp**: {m.get('temp', 'N/A')} | **Dew**: {m.get('dew', 'N/A')}\n"
+                    md += f"  🔹 **Altimeter**: {m.get('altimeter', 'N/A')}\n\n"
+                    weather_data += md
+                else:
+                    weather_data += get_instant_weather(icao) + "\n\n"
+            
+            # Telegram limit is 4096. We split at 4000 to be safe.
+            if len(weather_data) > 4000:
+                chunks = [weather_data[i:i+4000] for i in range(0, len(weather_data), 4000)]
+                for chunk in chunks:
+                    try:
+                        bot.reply_to(message, chunk, parse_mode="Markdown")
+                    except:
+                        bot.reply_to(message, chunk) # Fallback if markdown is broken in chunk
+            else:
                 try:
-                    bot.reply_to(message, chunk, parse_mode="Markdown")
-                except:
-                    bot.reply_to(message, chunk) # Fallback if markdown is broken in chunk
-        else:
-            try:
-                bot.reply_to(message, weather_data, parse_mode="Markdown")
-            except telebot.apihelper.ApiTelegramException:
-                bot.reply_to(message, weather_data) 
-                
-    except Exception as e:
-        bot.reply_to(message, f"Sorry, I ran into an error: {str(e)}")
+                    bot.reply_to(message, weather_data, parse_mode="Markdown")
+                except telebot.apihelper.ApiTelegramException:
+                    bot.reply_to(message, weather_data) 
+                    
+        except Exception as e:
+            bot.reply_to(message, f"Sorry, I ran into an error: {str(e)}")
 
 if __name__ == "__main__":
     # When deployed on Render, the PORT is provided by the environment
