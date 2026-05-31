@@ -107,7 +107,7 @@ def bulk_upsert_weather(records):
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (icao_code) 
                 DO UPDATE SET 
-                    raw_metar = EXCLUDED.raw_metar,
+                    raw_metar = COALESCE(NULLIF(EXCLUDED.raw_metar, ''), airport_weather.raw_metar),
                     raw_taf = COALESCE(NULLIF(EXCLUDED.raw_taf, ''), airport_weather.raw_taf),
                     decoded_data = jsonb_set(
                         EXCLUDED.decoded_data,

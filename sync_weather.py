@@ -370,20 +370,25 @@ def indian_bulk_sync():
     except Exception as e:
         print(f"[INDIA SYNC] AAI portal unavailable: {e}", flush=True)
 
-    # ---------- Extract ALL Indian METARs from combined text ----------
+    # ---------- Extract ALL Indian METARs and TAFs from combined text ----------
     # Indian ICAO prefixes: VA (West), VE (East), VI (North), VO (South)
     pattern = r'\b(V[AEIO][A-Z]{2})\s+([0-9]{6}Z[^=\n]*)'
     matches = list(re.finditer(pattern, combined_text))
+
+    indian_tafs = {}
 
     for m in matches:
         raw = m.group(0).strip().rstrip('=')
         icao = m.group(1)
 
-        # Skip TAF lines (contain validity periods like 2218/2400)
+        # Distinguish TAF lines (contain validity periods like 2218/2400)
         if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
+            if icao not in indian_tafs:
+                clean_taf = raw if raw.startswith('TAF') else 'TAF ' + raw
+                indian_tafs[icao] = clean_taf
             continue
 
-        # Keep only the first (newest) occurrence of each airport
+        # Keep only the first (newest) occurrence of each METAR
         if icao in indian_records:
             continue
 
@@ -407,17 +412,21 @@ def indian_bulk_sync():
 
         indian_records[icao] = (raw, time_str)
 
-    print(f"[INDIA SYNC] Extracted {len(indian_records)} unique Indian airport METARs.", flush=True)
+    print(f"[INDIA SYNC] Extracted {len(indian_records)} METARs and {len(indian_tafs)} TAFs.", flush=True)
 
-    if not indian_records:
-        print("[INDIA SYNC] No Indian METARs found. Skipping bulk insert.", flush=True)
+    # Combine all unique ICAOs that have EITHER a METAR or a TAF
+    all_indian_icaos = set(indian_records.keys()).union(set(indian_tafs.keys()))
+
+    if not all_indian_icaos:
+        print("[INDIA SYNC] No Indian data found. Skipping bulk insert.", flush=True)
         return
 
     # ---------- Build bulk records and insert ----------
     bulk_records = []
     global_airports = fetch_global_airports()
     now = datetime.now(timezone.utc)
-    for icao, (raw_metar, time_str) in indian_records.items():
+    for icao in all_indian_icaos:
+        raw_metar, time_str = indian_records.get(icao, ("", "N/A"))
         model = parse_raw_metar_to_bulk_record(raw_metar)
 
         station_name = "Unknown Station"
@@ -454,12 +463,14 @@ def indian_bulk_sync():
             "name": station_name,
             "time": time_str,
             "model": model,
-            "history": [raw_metar],
+            "history": [raw_metar] if raw_metar else [],
             "station_name": station_name,
             "coords_str": coords_str,
             "sun_str": sun_str
         }
-        bulk_records.append((icao, raw_metar, "", decoded_data))
+        
+        local_taf = indian_tafs.get(icao, "")
+        bulk_records.append((icao, raw_metar, local_taf, decoded_data))
 
     # Bulk write all Indian airports in one transaction
     count = bulk_upsert_weather(bulk_records)
