@@ -2,7 +2,10 @@ import time
 import re
 import requests
 import json
-from datetime import datetime, timezone
+import io
+import csv
+import gzip
+from datetime import datetime, timezone, timedelta
 from astral.sun import sun
 from astral import LocationInfo
 from db_manager import upsert_weather, bulk_upsert_weather
@@ -168,18 +171,12 @@ def fetch_global_airports() -> dict:
     return {}
 
 def fetch_global_metars() -> list:
-    """Downloads the NOAA hourly METAR cycle file containing ALL global METARs.
-    Fetches both the current hour and previous hour to ensure we catch airports
-    that update at XX:50 (which roll into the previous hour's file).
-    Returns a list of tuples: (icao, raw_metar, obs_time_str, decoded_data_dict)
+    """Downloads the NOAA global METAR CSV cache file.
+    Returns a list of tuples: (icao, raw_metar, raw_taf, decoded_data_dict)
     """
     now = datetime.now(timezone.utc)
-    current_hour = now.hour
-    prev_hour = (current_hour - 1) % 24
-    
-    hours_to_fetch = [current_hour, prev_hour]
     records = []
-    seen_icaos = set()  # Deduplicate — keep newest only
+    seen_icaos = set()
     
     print("Fetching global TAF cycle...")
     global_tafs = fetch_global_tafs()
@@ -187,89 +184,86 @@ def fetch_global_metars() -> list:
     print("Fetching global airports metadata...")
     global_airports = fetch_global_airports()
     
-    for h in hours_to_fetch:
-        url = f"https://tgftp.nws.noaa.gov/data/observations/metar/cycles/{h:02d}Z.TXT"
-        print(f"[GLOBAL SYNC] Downloading global METAR dump from {url}...", flush=True)
-        try:
-            resp = requests.get(url, timeout=30)
-            if resp.status_code != 200:
-                print(f"[GLOBAL SYNC] NOAA returned status {resp.status_code} for {h:02d}Z", flush=True)
-                continue
-                
-            lines = resp.text.strip().split('\n')
-            current_time_str = ""
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-
-                if re.match(r'^\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}$', line):
-                    current_time_str = line
-                    continue
-
-                icao_match = re.match(r'^([A-Z]{4})\s', line)
-                if not icao_match:
-                    continue
-
-                icao = icao_match.group(1)
-                if icao in seen_icaos:
-                    continue
-                seen_icaos.add(icao)
-
-                raw_metar = line.strip()
-
-                try:
-                    obs_dt = datetime.strptime(current_time_str, "%Y/%m/%d %H:%M").replace(tzinfo=timezone.utc)
-                    time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
-                except:
-                    time_str = "N/A"
-
-                model = parse_raw_metar_to_bulk_record(raw_metar)
-                # Inject airport metadata if available
-                station_name = "Unknown Station"
-                coords_str = ""
-                sun_str = ""
-                
-                airport_info = global_airports.get(icao)
-                if airport_info:
+    url = "https://aviationweather.gov/data/cache/metars.cache.csv.gz"
+    print(f"[GLOBAL SYNC] Downloading global METAR CSV from {url}...", flush=True)
+    try:
+        headers = {"User-Agent": "MetBotLayer2Engine/2.0 (contact@metbot.render)"}
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            with gzip.open(io.BytesIO(resp.content), 'rt', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                # Skip 6 lines of NOAA metadata headers
+                for _ in range(6): 
+                    next(reader, None)
+                    
+                for row in reader:
+                    if len(row) < 3:
+                        continue
+                        
+                    raw_metar = row[0].strip()
+                    icao = row[1].strip().upper()
+                    obs_time_str = row[2].strip()
+                    
+                    if not icao or not raw_metar:
+                        continue
+                        
+                    if icao in seen_icaos:
+                        continue
+                    seen_icaos.add(icao)
+                    
                     try:
-                        name = airport_info.get("name", "Unknown Station")
-                        city = airport_info.get("city", "")
-                        country = airport_info.get("country", "")
-                        lat = float(airport_info.get("lat", 0.0))
-                        lon = float(airport_info.get("lon", 0.0))
+                        obs_dt = datetime.fromisoformat(obs_time_str.replace('Z', '+00:00'))
+                        time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+                    except:
+                        time_str = "N/A"
                         
-                        location_parts = [p for p in [name, city, country] if p]
-                        station_name = ", ".join(location_parts) if location_parts else "Unknown Station"
-                        
-                        lat_dir = "N" if lat >= 0 else "S"
-                        lon_dir = "E" if lon >= 0 else "W"
-                        coords_str = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
-                        
-                        loc = LocationInfo(latitude=lat, longitude=lon)
-                        s = sun(loc.observer, date=now.date())
-                        sunrise = s['sunrise'].strftime('%H:%MZ')
-                        sunset = s['sunset'].strftime('%H:%MZ')
-                        sun_str = f"🌅 {sunrise} 🌇 {sunset}"
-                    except Exception:
-                        pass
-                
-                decoded_data = {
-                    "icao": icao,
-                    "name": station_name,
-                    "coords": coords_str,
-                    "sun": sun_str,
-                    "time": time_str,
-                    "model": model,
-                    "history": [raw_metar]
-                }
-                
-                raw_taf = global_tafs.get(icao, "")
-                records.append((icao, raw_metar, raw_taf, decoded_data))
-                
-        except Exception as e:
-            print(f"[GLOBAL SYNC] Download failed for {h:02d}Z: {e}", flush=True)
+                    model = parse_raw_metar_to_bulk_record(raw_metar)
+                    
+                    # Inject airport metadata
+                    station_name = "Unknown Station"
+                    coords_str = ""
+                    sun_str = ""
+                    
+                    airport_info = global_airports.get(icao)
+                    if airport_info:
+                        try:
+                            name = airport_info.get("name", "Unknown Station")
+                            city = airport_info.get("city", "")
+                            country = airport_info.get("country", "")
+                            lat = float(airport_info.get("lat", 0.0))
+                            lon = float(airport_info.get("lon", 0.0))
+                            
+                            location_parts = [p for p in [name, city, country] if p]
+                            station_name = ", ".join(location_parts) if location_parts else "Unknown Station"
+                            
+                            lat_dir = "N" if lat >= 0 else "S"
+                            lon_dir = "E" if lon >= 0 else "W"
+                            coords_str = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
+                            
+                            loc = LocationInfo(latitude=lat, longitude=lon)
+                            s = sun(loc.observer, date=now.date())
+                            sunrise = s['sunrise'].strftime('%H:%MZ')
+                            sunset = s['sunset'].strftime('%H:%MZ')
+                            sun_str = f"🌅 {sunrise} 🌇 {sunset}"
+                        except Exception:
+                            pass
+                            
+                    decoded_data = {
+                        "icao": icao,
+                        "name": station_name,
+                        "coords": coords_str,
+                        "sun": sun_str,
+                        "time": time_str,
+                        "model": model,
+                        "history": [raw_metar]
+                    }
+                    
+                    raw_taf = global_tafs.get(icao, "")
+                    records.append((icao, raw_metar, raw_taf, decoded_data))
+        else:
+            print(f"[GLOBAL SYNC] NOAA returned status {resp.status_code}")
+    except Exception as e:
+        print(f"[GLOBAL SYNC] Download failed: {e}", flush=True)
 
     print(f"[GLOBAL SYNC] Parsed {len(records)} unique airports globally.", flush=True)
     return records
@@ -487,6 +481,10 @@ def full_sync_cycle():
     print(f"[SYNC] ✅ Full cycle complete.\n", flush=True)
 
 
+def get_current_ist_hour():
+    """Calculates current hour in Indian Standard Time to guide sleep metrics"""
+    return (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).hour
+
 if __name__ == "__main__":
     print("[SYNC PROCESS] Background worker initialized. Starting permanent loop...", flush=True)
     while True:
@@ -495,5 +493,15 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[SYNC PROCESS] Fatal error in loop: {e}", flush=True)
 
-        print("[SYNC PROCESS] Sleeping for 25 minutes before next run...", flush=True)
-        time.sleep(25 * 60)  # Wait 25 minutes before running again
+        current_hour = get_current_ist_hour()
+        
+        # TACTICAL INTERVAL CONFIGURATION:
+        # At night (21:00 to 06:00 IST), scan aggressively every 5 minutes to bypass delays.
+        # During peak hours, scan every 10 minutes to save server compute cycles.
+        if current_hour >= 21 or current_hour < 6:
+            sleep_minutes = 5
+        else:
+            sleep_minutes = 10
+
+        print(f"[SYNC PROCESS] Entering restful sleep window for {sleep_minutes} minutes...", flush=True)
+        time.sleep(sleep_minutes * 60)
