@@ -429,46 +429,54 @@ def indian_bulk_sync():
         return
 
     # ---------- Source 3: Ogimet Bulk TAF Ingestion ----------
-    # To prevent IP bans, we ONLY scrape Ogimet for Indian stations that are MISSING from NOAA's global feed.
-    print("[INDIA SYNC] Fetching global TAF list to identify missing domestic TAFs...", flush=True)
-    global_tafs = fetch_global_tafs()
-    missing_taf_icaos = [icao for icao in indian_records.keys() if icao not in global_tafs]
+    # The US AWC global feed drops intermediate updates for Indian regional airports (e.g. VOCB).
+    # To guarantee 100% live data, we fetch ALL Indian TAFs directly from Ogimet.
+    # To prevent IP bans, we chunk the ~100 ICAOs into groups of 25 and do 4 HTTP requests.
+    print("[INDIA SYNC] Fetching ALL domestic TAFs directly from Ogimet in chunks to bypass stale global feeds...", flush=True)
     
-    print(f"[INDIA SYNC] {len(missing_taf_icaos)} Indian stations missing global TAFs. Fetching from Ogimet...", flush=True)
+    indian_icaos_list = list(indian_records.keys())
+    chunk_size = 25
+    chunks = [indian_icaos_list[i:i + chunk_size] for i in range(0, len(indian_icaos_list), chunk_size)]
     
-    def fetch_ogimet_taf_for_icao(icao_code):
+    def fetch_ogimet_chunk(icao_chunk):
         try:
             now = datetime.now(timezone.utc)
             from datetime import timedelta
             yesterday = now - timedelta(days=1)
+            lugar_str = ",".join(icao_chunk)
             url = (
-                f"https://ogimet.com/display_metars2.php?lang=en&lugar={icao_code}"
+                f"https://ogimet.com/display_metars2.php?lang=en&lugar={lugar_str}"
                 f"&tipo=ALL&ord=REV&nil=SI&fmt=html"
                 f"&ano={yesterday.year}&mes={yesterday.month:02d}&day={yesterday.day:02d}"
                 f"&hora=00&anof={now.year}&mesf={now.month:02d}"
                 f"&dayf={now.day:02d}&horaf={now.hour:02d}&minf=59&send=send"
             )
-            r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            r = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code == 200:
                 text = BeautifulSoup(r.text, 'html.parser').get_text()
-                pattern = rf"\b({icao_code})\s+([0-9]{{6}}Z[^=\n]*)"
-                matches = list(re.finditer(pattern, text, re.IGNORECASE))
-                for m in matches:
+                # Ogimet is ord=REV, so the first time we see an ICAO, it's the newest
+                found_tafs = {}
+                for m in re.finditer(r'\b(V[A-Z]{3})\s+([0-9]{6}Z[^=\n]*)', text, re.IGNORECASE):
+                    icao = m.group(1).upper()
+                    if icao not in icao_chunk: continue
                     raw = m.group(0).strip().rstrip('=')
                     if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
-                        clean_taf = raw if raw.startswith('TAF') else 'TAF ' + raw
-                        return icao_code, clean_taf
-        except Exception:
-            pass
-        return icao_code, ""
+                        if icao not in found_tafs:
+                            clean_taf = raw if raw.startswith('TAF') else 'TAF ' + raw
+                            found_tafs[icao] = clean_taf
+                return found_tafs
+        except Exception as e:
+            print(f"[INDIA SYNC] Failed to fetch Ogimet chunk: {e}")
+        return {}
 
-    if missing_taf_icaos:
+    if chunks:
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            for icao_code, taf_str in executor.map(fetch_ogimet_taf_for_icao, missing_taf_icaos):
-                if taf_str:
-                    indian_tafs[icao_code] = taf_str
+            for chunk_result in executor.map(fetch_ogimet_chunk, chunks):
+                for icao, taf_str in chunk_result.items():
+                    if taf_str:
+                        indian_tafs[icao] = taf_str
 
-    print(f"[INDIA SYNC] Successfully retrieved {len(indian_tafs)} domestic TAFs from Ogimet.", flush=True)
+    print(f"[INDIA SYNC] Successfully retrieved {len(indian_tafs)} live domestic TAFs from Ogimet.", flush=True)
 
     # ---------- Build bulk records and insert ----------
     bulk_records = []
