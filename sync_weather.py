@@ -114,15 +114,13 @@ def parse_raw_metar_to_bulk_record(raw_metar: str) -> dict:
             model["clouds"] = " ".join(cloud_strs)
 
     # 6. Weather phenomena
-    if "NOSIG" in raw_metar:
-        model["weather"] = "NOSIG"
-    else:
-        wx_match = re.search(
-            r'\b(-|\+|VC)?(TS|SH|DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)+\b',
-            raw_metar
-        )
-        if wx_match and model["weather"] != "CAVOK":
-            model["weather"] = wx_match.group(0)
+    wx_matches = re.finditer(
+        r'\b(-|\+|VC)?(TS|SH|DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)+\b',
+        raw_metar
+    )
+    wx_list = [m.group(0) for m in wx_matches]
+    if wx_list and model["weather"] != "CAVOK":
+        model["weather"] = " ".join(wx_list)
 
     return model
 
@@ -427,7 +425,6 @@ def indian_bulk_sync():
     now = datetime.now(timezone.utc)
     for icao, (raw_metar, time_str) in indian_records.items():
         model = parse_raw_metar_to_bulk_record(raw_metar)
-        model["weather"] = f"{model['weather']} (AMSS/AAI)" if model["weather"] != "NONE" else "AMSS/AAI"
 
         station_name = "Unknown Station"
         coords_str = ""
