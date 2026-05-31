@@ -2,7 +2,7 @@ import os
 import telebot
 from flask import Flask, request, jsonify, render_template
 from weather_engine import get_instant_weather, get_station_details
-from db_manager import get_cached_weather, upsert_weather
+from db_manager import get_cached_weather, upsert_weather, get_weather_batch
 import re
 from datetime import datetime, timezone
 
@@ -63,10 +63,12 @@ def api_weather():
         return jsonify({"text": "Please provide at least one station code."})
         
     result_text = ""
+    cached_batch = get_weather_batch(stations_list)
+    
     for icao in stations_list:
-        cached_data = get_cached_weather(icao)
+        cached_data = cached_batch.get(icao)
         if cached_data:
-            c = cached_data['decoded_data']
+            c = cached_data['decoded']
             m = c.get('model', {})
             
             # Reconstruct the exact Markdown expected by index.html from the cache
