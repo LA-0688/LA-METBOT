@@ -150,49 +150,39 @@ def parse_taf_time(raw_taf: str) -> datetime:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 def fetch_global_tafs() -> dict:
-    """Downloads ALL FOUR NOAA 6-hour TAF cycle files (00Z, 06Z, 12Z, 18Z).
-    Merges them by keeping the absolute newest TAF for each ICAO.
+    """Downloads the live global TAF XML cache from Aviation Weather Center.
+    This replaces the flawed NOAA cycles feed which drops off-cycle updates.
     Returns a dictionary mapping ICAO to raw_taf.
     """
     taf_records = {}
-    taf_times = {}
-    
-    cycles = ['00Z', '06Z', '12Z', '18Z']
-    
-    import concurrent.futures
-    def fetch_cycle(cycle):
-        url = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/cycles/{cycle}.TXT"
-        try:
-            resp = requests.get(url, timeout=15)
-            if resp.status_code == 200:
-                return resp.text
-        except Exception as e:
-            print(f"Failed to fetch {cycle} cycle: {e}")
-        return ""
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        for text in executor.map(fetch_cycle, cycles):
-            if not text: continue
-            blocks = text.strip().split('\n\n')
-            for block in blocks:
-                lines = block.strip().split('\n')
-                if len(lines) > 1:
-                    raw_taf = " ".join([l.strip() for l in lines[1:] if l.strip()])
-                    icao_match = re.search(r'\b([A-Z]{4})\b', raw_taf)
-                    if icao_match:
-                        icao = icao_match.group(1).upper()
-                        clean_taf = raw_taf.strip()
+    url = "https://aviationweather.gov/data/cache/tafs.cache.xml.gz"
+    print(f"[GLOBAL SYNC] Downloading global TAF XML cache from {url}...", flush=True)
+    try:
+        import io, gzip
+        import xml.etree.ElementTree as ET
+        
+        headers = {"User-Agent": "MetBotLayer2Engine/2.0 (contact@metbot.render)"}
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            with gzip.open(io.BytesIO(resp.content), 'rt', encoding='utf-8') as f:
+                xml_data = f.read()
+            
+            root = ET.fromstring(xml_data)
+            data = root.find('data')
+            if data is not None:
+                for taf in data.findall('TAF'):
+                    station = taf.findtext('station_id')
+                    raw_text = taf.findtext('raw_text')
+                    if station and raw_text:
+                        clean_taf = raw_text.strip()
                         if clean_taf.upper().startswith('TAF'):
                             clean_taf = clean_taf[3:].strip()
-                            
-                        obs_dt = parse_taf_time(clean_taf)
+                        taf_records[station.upper()] = clean_taf
                         
-                        # Only overwrite if this TAF is strictly newer than what we have
-                        if icao not in taf_records or obs_dt > taf_times.get(icao, datetime.min.replace(tzinfo=timezone.utc)):
-                            taf_records[icao] = clean_taf
-                            taf_times[icao] = obs_dt
-                            
-    print(f"[GLOBAL SYNC] Merged all NOAA cycles. Found {len(taf_records)} active global TAFs.")
+        print(f"[GLOBAL SYNC] Successfully parsed {len(taf_records)} active global TAFs from AWC XML cache.")
+    except Exception as e:
+        print(f"[GLOBAL SYNC] Failed to fetch global TAF XML cache: {e}")
+    
     return taf_records
 
 def fetch_global_airports() -> dict:
