@@ -128,20 +128,52 @@ def parse_raw_metar_to_bulk_record(raw_metar: str) -> dict:
     return model
 
 
+def parse_taf_time(raw_taf: str) -> datetime:
+    """Helper to extract a true UTC datetime from a DDHHMMZ string in a TAF."""
+    match = re.search(r'\b([0-9]{6})Z\b', raw_taf)
+    if not match:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        ts = match.group(1)
+        day, hour, minute = int(ts[0:2]), int(ts[2:4]), int(ts[4:6])
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta
+        obs_dt = now.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+        # If the day seems like it's from late last month (e.g. today is 1st, TAF is 31st)
+        if obs_dt > now + timedelta(days=2):
+            if now.month == 1:
+                obs_dt = obs_dt.replace(year=now.year - 1, month=12)
+            else:
+                obs_dt = obs_dt.replace(month=now.month - 1)
+        return obs_dt
+    except:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
 def fetch_global_tafs() -> dict:
-    """Downloads the NOAA 6-hour TAF cycle file containing ALL global TAFs.
+    """Downloads ALL FOUR NOAA 6-hour TAF cycle files (00Z, 06Z, 12Z, 18Z).
+    Merges them by keeping the absolute newest TAF for each ICAO.
     Returns a dictionary mapping ICAO to raw_taf.
     """
-    now = datetime.now(timezone.utc)
-    # TAF cycles are published at 00, 06, 12, 18
-    cycle_hour = (now.hour // 6) * 6
-    
     taf_records = {}
-    url = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/cycles/{cycle_hour:02d}Z.TXT"
-    try:
-        resp = requests.get(url, timeout=30)
-        if resp.status_code == 200:
-            blocks = resp.text.strip().split('\n\n')
+    taf_times = {}
+    
+    cycles = ['00Z', '06Z', '12Z', '18Z']
+    
+    import concurrent.futures
+    def fetch_cycle(cycle):
+        url = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/cycles/{cycle}.TXT"
+        try:
+            resp = requests.get(url, timeout=15)
+            if resp.status_code == 200:
+                return resp.text
+        except Exception as e:
+            print(f"Failed to fetch {cycle} cycle: {e}")
+        return ""
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        for text in executor.map(fetch_cycle, cycles):
+            if not text: continue
+            blocks = text.strip().split('\n\n')
             for block in blocks:
                 lines = block.strip().split('\n')
                 if len(lines) > 1:
@@ -152,11 +184,15 @@ def fetch_global_tafs() -> dict:
                         clean_taf = raw_taf.strip()
                         if clean_taf.upper().startswith('TAF'):
                             clean_taf = clean_taf[3:].strip()
-                        if icao not in taf_records:
+                            
+                        obs_dt = parse_taf_time(clean_taf)
+                        
+                        # Only overwrite if this TAF is strictly newer than what we have
+                        if icao not in taf_records or obs_dt > taf_times.get(icao, datetime.min.replace(tzinfo=timezone.utc)):
                             taf_records[icao] = clean_taf
-    except Exception as e:
-        print(f"Failed to fetch global TAF cycle: {e}")
-    
+                            taf_times[icao] = obs_dt
+                            
+    print(f"[GLOBAL SYNC] Merged all NOAA cycles. Found {len(taf_records)} active global TAFs.")
     return taf_records
 
 def fetch_global_airports() -> dict:
