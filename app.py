@@ -53,16 +53,42 @@ def index():
     """Serves the beautiful frontend website!"""
     return render_template("index.html")
 
+def calculate_flight_category(vis_str, clouds_str):
+    vis_m = 10000
+    if vis_str:
+        v = vis_str.lower()
+        if 'm' in v and 'k' not in v:
+            try: vis_m = int(''.join(filter(str.isdigit, v)))
+            except: pass
+        elif 'k' in v:
+            try: vis_m = float(''.join([ch for ch in v if ch.isdigit() or ch=='.'])) * 1000
+            except: pass
+
+    ceiling_ft = 99999
+    if clouds_str and "CAVOK" not in clouds_str.upper():
+        matches = re.findall(r'(?:BKN|OVC|VV)([0-9]{3})', clouds_str.upper())
+        for m in matches:
+            try:
+                c_ft = int(m) * 100
+                if c_ft < ceiling_ft: ceiling_ft = c_ft
+            except: pass
+
+    if ceiling_ft < 500 or vis_m < 1600: return "LIFR"
+    elif ceiling_ft < 1000 or vis_m < 4800: return "IFR"
+    elif ceiling_ft <= 3000 or vis_m <= 8000: return "MVFR"
+    else: return "VFR"
+
 @app.route("/api/weather", methods=['GET'])
 def api_weather():
-    """Frontend Javascript calls this to get the weather text."""
+    """Returns pure JSON for the frontend to render the UI."""
+    from db_manager import get_weather_batch
     stations = request.args.get('stations', '')
     stations_list = [s.strip().upper() for s in stations.replace(",", " ").split() if s.strip()]
     
     if not stations_list:
-        return jsonify({"text": "Please provide at least one station code."})
+        return jsonify({"status": "error", "message": "Please provide at least one station code."}), 400
         
-    result_text = ""
+    results = {}
     cached_batch = get_weather_batch(stations_list)
     
     for icao in stations_list:
@@ -71,39 +97,52 @@ def api_weather():
             c = cached_data['decoded']
             m = c.get('model', {})
             
-            # Reconstruct the exact Markdown expected by index.html from the cache
-            md = f"### 📍 {c.get('icao', icao)} | {c.get('name', 'Unknown Station')} | {c.get('coords', '')} | {c.get('sun', '')}\n\n"
-            
             history = c.get('history', [])
             raw_metar = history[0] if history else ""
-            if raw_metar:
-                metar_elapsed = get_elapsed_str(raw_metar)
-                md += f"✈️ **METAR**{metar_elapsed}\n```\n{raw_metar}\n```\n\n"
-            else:
-                md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
-                
-            # Read TAF directly from database
             raw_taf = cached_data.get('raw_taf', '')
-            if raw_taf:
-                taf_elapsed = get_elapsed_str(raw_taf)
-                md += f"📅 **TAF**{taf_elapsed}\n```\n{raw_taf}\n```\n\n"
-            else:
-                md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
+            
+            # Cleanly parse out numbers for the developer API
+            temp_c = None
+            if m.get('temp') and '°C' in m['temp']:
+                try: temp_c = int(m['temp'].replace('°C', ''))
+                except: pass
                 
-            md += "*Decoded:*\n"
-            md += f"  🔹 **Wind**: {m.get('windStr', 'N/A')}\n"
-            md += f"  🔹 **Visibility**: {m.get('visibility', 'N/A')}\n"
-            md += f"  🔹 **Weather**: {m.get('weather', 'NONE')}\n"
-            md += f"  🔹 **Clouds**: {m.get('clouds', 'CLEAR')}\n"
-            md += f"  🔹 **Temp**: {m.get('temp', 'N/A')} | **Dew**: {m.get('dew', 'N/A')}\n"
-            md += f"  🔹 **Altimeter**: {m.get('altimeter', 'N/A')}\n\n"
-            
-            result_text += md
+            flight_cat = calculate_flight_category(m.get('visibility', ''), m.get('clouds', ''))
+
+            results[icao] = {
+                "icao": c.get('icao', icao),
+                "name": c.get('name', 'Unknown Station'),
+                "coords": c.get('coords', ''),
+                "sun": c.get('sun', ''),
+                "raw_metar": raw_metar,
+                "metar_time_ago": get_elapsed_str(raw_metar).replace(' (', '').replace(')', '').strip() if raw_metar else '',
+                "raw_taf": raw_taf,
+                "taf_time_ago": get_elapsed_str(raw_taf).replace(' (', '').replace(')', '').strip() if raw_taf else '',
+                "decoded": {
+                    "windStr": m.get('windStr', 'N/A'),
+                    "wind_speed_knots": m.get('windSpeed', 0),
+                    "visibility": m.get('visibility', 'N/A'),
+                    "weather": m.get('weather', 'NONE'),
+                    "clouds": m.get('clouds', 'CLEAR'),
+                    "temp": m.get('temp', 'N/A'),
+                    "temperature_c": temp_c,
+                    "dew": m.get('dew', 'N/A'),
+                    "altimeter": m.get('altimeter', 'N/A'),
+                    "flight_category": flight_cat
+                },
+                "last_updated": cached_data.get('last_updated', '')
+            }
         else:
-            # Fallback to slow legacy scrape if not cached (This natively handles Indian govt SSL bypass)
-            result_text += get_instant_weather(icao) + "\n\n"
+            results[icao] = {
+                "icao": icao,
+                "error": "Cache miss. Data not currently synced.",
+                "decoded": {}
+            }
             
-    return jsonify({"text": result_text})
+    return jsonify({
+        "status": "success",
+        "results": results
+    }), 200
 
 @app.route('/api/station', methods=['GET'])
 def api_station():

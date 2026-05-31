@@ -7,8 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Marked.js for markdown parsing -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="/static/animated-icons.js"></script>
 </head>
 <body>
@@ -166,130 +164,76 @@
             return stationCode + ' ' + highlighted;
         }
 
-        function createCardElement(data) {
-            const blocks = data.split('### 📍');
-            let resultCard = null;
+        function createCardElement(result) {
+            const card = document.createElement('div');
+            card.className = 'weather-card';
+            card.onclick = (e) => {
+                const t = e.target;
+                if (t.closest('.view-toggle') ||
+                    t.closest('.copy-btn') ||
+                    t.tagName === 'INPUT' ||
+                    t.tagName === 'LABEL' ||
+                    t.closest('label')) return;
+                openStationModal(result.icao);
+            };
+            card.style.cursor = 'pointer';
+
+            const metarTime = result.metar_time_ago || '';
+            const tafTime = result.taf_time_ago || '';
+            const rawMetar = result.raw_metar ? highlightThreats(result.raw_metar) : '_No METAR data available._';
+            const rawTaf = result.raw_taf ? highlightThreats(result.raw_taf) : '_No TAF data available._';
             
-            blocks.forEach((block, index) => {
-                if(!block.trim()) return;
-                const lines = block.split('\n');
-                const headerText = lines[0].trim();
-                const cleanHeader = headerText.replace(/\*\*/g, '');
-                const parts = cleanHeader.split('|').map(p => p.trim());
-                
-                const stationId = parts[0];
-                const airportName = parts[1] || '';
-                const coords = parts[2] || '';
-                const sunTimes = parts[3] || '';
-                
-                const card = document.createElement('div');
-                card.className = 'weather-card';
-                const cardId = `card-${index}`;
-                card.onclick = (e) => {
-                    // Block modal if click came from toggle area or any interactive control inside card
-                    const t = e.target;
-                    if (t.closest('.view-toggle') ||
-                        t.closest('.copy-btn') ||
-                        t.tagName === 'INPUT' ||
-                        t.tagName === 'LABEL' ||
-                        t.closest('label')) return;
-                    openStationModal(stationId);
-                };
-                card.style.cursor = 'pointer';
-                
-                const rawContent = [];
-                const decodedContent = [];
-                let isInsideRaw = false;
+            let flightCatColor = 'inherit';
+            if (result.decoded.flight_category === 'VFR') flightCatColor = '#22c55e';
+            else if (result.decoded.flight_category === 'MVFR') flightCatColor = '#3b82f6';
+            else if (result.decoded.flight_category === 'IFR') flightCatColor = '#ef4444';
+            else if (result.decoded.flight_category === 'LIFR') flightCatColor = '#c084fc';
 
-                const fullText = block.replace(headerText, '').trim();
-                const parsedHTML = marked.parse(fullText);
-                
-                // Helper to format elapsed time in hours and minutes
-                function formatElapsed(min) {
-                    if (min === null || min === undefined) return 'N/A';
-                    if (min < 0) return "0m ago";
-                    const hours = Math.floor(min / 60);
-                    const mins = min % 60;
-                    if (hours > 0) {
-                        return `${hours}h ${mins}m ago`;
-                    }
-                    return `${mins}m ago`;
-                }
-
-                // Calculate METAR elapsed time from the raw METAR string (Ground Truth)
-                const metarCodeMatch = parsedHTML.match(/<code>([\s\S]*?)<\/code>/);
-                const rawMetarStr = metarCodeMatch ? metarCodeMatch[1] : '';
-                // Extract dynamically calculated elapsed times directly from the API Markdown
-                let metarTime = 'N/A';
-                const metarTimeMatch = fullText.match(/✈️ \*\*METAR\*\* \((.*?)\)/);
-                if (metarTimeMatch) {
-                    metarTime = metarTimeMatch[1];
-                }
-
-                let tafTime = 'N/A';
-                const tafTimeMatch = fullText.match(/📅 \*\*TAF\*\* \((.*?)\)/);
-                if (tafTimeMatch) {
-                    tafTime = tafTimeMatch[1];
-                } else {
-                    // Legacy fallback handling for Issued: format
-                    const legacyTafMatch = fullText.match(/📅 \*\*TAF\*\* \(Issued: (.*?)\)/);
-                    if (legacyTafMatch) {
-                        try {
-                            const tafDate = new Date(legacyTafMatch[1].replace(' UTC', 'Z').replace(' ', 'T'));
-                            const elapsedMin = Math.floor((new Date() - tafDate) / 60000);
-                            tafTime = formatElapsed(elapsedMin);
-                        } catch (e) { tafTime = 'N/A'; }
-                    }
-                }
-
-                card.innerHTML = `
-                    <div class="card-header">
-                        <div class="header-left">
-                            <span class="station-id">${stationId}</span>
-                            <span class="airport-name" style="font-size: 0.9rem; color: var(--text-dim); margin-top: 0.2rem;">${airportName}</span>
-                            <span class="airport-coords" style="font-size: 0.8rem; color: var(--text-dim); opacity: 0.7; margin-top: 0.1rem; font-family: 'JetBrains Mono', monospace;">${coords}</span>
-                        </div>
-                        <div class="header-center">
-                            ${sunTimes}
-                        </div>
-                        <div class="header-right">
-                            <div class="view-toggle">
-                                <span class="toggle-label raw-label">Raw</span>
-                                <label class="switch">
-                                    <input type="checkbox" onchange="this.closest('.weather-card').classList.toggle('show-decoded')">
-                                    <span class="slider"></span>
-                                </label>
-                                <span class="toggle-label decoded-label">Decoded</span>
-                            </div>
+            card.innerHTML = `
+                <div class="card-header">
+                    <div class="header-left">
+                        <span class="station-id">${result.icao}</span>
+                        <span class="airport-name" style="font-size: 0.9rem; color: var(--text-dim); margin-top: 0.2rem;">${result.name}</span>
+                        <span class="airport-coords" style="font-size: 0.8rem; color: var(--text-dim); opacity: 0.7; margin-top: 0.1rem; font-family: 'JetBrains Mono', monospace;">${result.coords}</span>
+                    </div>
+                    <div class="header-center">
+                        ${result.sun}
+                    </div>
+                    <div class="header-right">
+                        <div class="view-toggle">
+                            <span class="toggle-label raw-label">Raw</span>
+                            <label class="switch">
+                                <input type="checkbox" onchange="this.closest('.weather-card').classList.toggle('show-decoded')">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="toggle-label decoded-label">Decoded</span>
                         </div>
                     </div>
-                    <div class="card-content">
-                        <div class="raw-view">
-                            <div class="metar-block">
-                                <div class="metar-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: space-between;">METAR ${metarTime ? `(${metarTime})` : ''}<button class="copy-btn" onclick="event.stopPropagation(); copyRawText(this)" title="Copy METAR"><i class="fa-regular fa-copy"></i></button></div>
-                                ${(() => {
-                                    const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
-                                    const metarBlock = codeBlocks.find(b => !/\d{4}\/\d{4}/.test(b));
-                                    return metarBlock ? highlightThreats(metarBlock) : '_No METAR data available._';
-                                })()}
-                            </div>
-                            <div class="taf-block" style="margin-top: 0.5rem;">
-                                <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: space-between;">TAF ${tafTime ? `(${tafTime})` : ''}<button class="copy-btn" onclick="event.stopPropagation(); copyRawText(this)" title="Copy TAF"><i class="fa-regular fa-copy"></i></button></div>
-                                ${(() => {
-                                    const codeBlocks = parsedHTML.match(/<code>[\s\S]*?<\/code>/g) || [];
-                                    const tafBlock = codeBlocks.find(b => /\d{4}\/\d{4}/.test(b));
-                                    return tafBlock ? highlightThreats(tafBlock) : '_No TAF data available._';
-                                })()}
-                            </div>
+                </div>
+                <div class="card-content">
+                    <div class="raw-view">
+                        <div class="metar-block">
+                            <div class="metar-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: space-between;">METAR ${metarTime ? `(${metarTime})` : ''}<button class="copy-btn" onclick="event.stopPropagation(); copyRawText(this)" title="Copy METAR"><i class="fa-regular fa-copy"></i></button></div>
+                            <code>${rawMetar}</code>
                         </div>
-                        <div class="decoded-view">
-                            ${parsedHTML.replace(/<code>[\s\S]*?<\/code>/g, '')}
+                        <div class="taf-block" style="margin-top: 0.5rem;">
+                            <div class="taf-time-label" style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: space-between;">TAF ${tafTime ? `(${tafTime})` : ''}<button class="copy-btn" onclick="event.stopPropagation(); copyRawText(this)" title="Copy TAF"><i class="fa-regular fa-copy"></i></button></div>
+                            <code>${rawTaf}</code>
                         </div>
                     </div>
-                `;
-                resultCard = card;
-            });
-            return resultCard;
+                    <div class="decoded-view">
+                        <p><em>Decoded:</em><br>
+                        🔹 <strong>Wind</strong>: ${result.decoded.windStr}<br>
+                        🔹 <strong>Visibility</strong>: ${result.decoded.visibility}<br>
+                        🔹 <strong>Weather</strong>: ${result.decoded.weather}<br>
+                        🔹 <strong>Clouds</strong>: ${result.decoded.clouds}<br>
+                        🔹 <strong>Temp</strong>: ${result.decoded.temp} | <strong>Dew</strong>: ${result.decoded.dew}<br>
+                        🔹 <strong>Altimeter</strong>: ${result.decoded.altimeter}<br>
+                        🔹 <strong>Flight Rules</strong>: <strong style="color: ${flightCatColor};">${result.decoded.flight_category}</strong></p>
+                    </div>
+                </div>
+            `;
+            return card;
         }
 
         // Modal Logic
@@ -463,9 +407,7 @@
             const query = input.value.trim();
             if(!query) return;
 
-            // Persist searched stations
             localStorage.setItem('lastStations', query);
-
             cardsGrid.innerHTML = '';
             
             const progressContainer = document.getElementById('progress-container');
@@ -474,15 +416,13 @@
             progressBar.style.width = '10%';
 
             const stations = query.replace(",", " ").split(/\s+/).filter(s => s.trim());
-            let completed = 0;
-
-            stations.forEach(async (station) => {
+            const queryStr = stations.join(',');
+            
+            const placeholders = {};
+            stations.forEach(station => {
                 const stationUpper = station.toUpperCase();
-                
-                // Create a skeleton loader card
                 const placeholder = document.createElement('div');
                 placeholder.className = 'weather-card';
-                placeholder.id = `loading-${stationUpper}`;
                 placeholder.innerHTML = `
                     <div class="card-header">
                         <div class="header-left">
@@ -493,48 +433,69 @@
                     <div style="color: var(--text-dim); font-size: 0.9rem;">Fetching live data from uplink...</div>
                 `;
                 cardsGrid.appendChild(placeholder);
-
-                try {
-                    const response = await fetch(`/api/weather?stations=${stationUpper}`);
-                    const data = await response.json();
-                    
-                    // Create real card
-                    const realCard = createCardElement(data.text);
-                    
-                    // Replace placeholder with real card to maintain order
-                    if (realCard) {
-                        placeholder.replaceWith(realCard);
-                    }
-                    
-                    // Dynamic Weather Animations (based on the received station's weather)
-                    const textRaw = data.text.toLowerCase();
-                    const isThunder = textRaw.includes('thunderstorm') || textRaw.includes('thunder') || textRaw.includes(' ts') || textRaw.includes('tsra');
-                    const isRain = textRaw.includes('rain') || textRaw.includes('showers') || textRaw.includes('shra') || textRaw.includes('ra') || textRaw.includes('drizzle') || textRaw.includes('dz');
-                    
-                    if (isThunder) document.body.className = 'weather-thunder';
-                    else if (isRain) document.body.className = 'weather-rain';
-                    
-                } catch (err) {
-                    placeholder.innerHTML = `
-                        <div class="card-header">
-                            <div class="header-left">
-                                <span class="station-id">${stationUpper}</span>
-                                <span class="airport-name">Timeout</span>
-                            </div>
-                        </div>
-                        <p class="error" style="color: var(--accent-red); font-size: 0.85rem;">Datalink Timeout.</p>
-                    `;
-                } finally {
-                    completed++;
-                    progressBar.style.width = `${(completed / stations.length) * 100}%`;
-                    if (completed === stations.length) {
-                        setTimeout(() => { 
-                            progressContainer.style.opacity = '0';
-                            progressBar.style.width = '0%';
-                        }, 500);
-                    }
-                }
+                placeholders[stationUpper] = placeholder;
             });
+
+            progressBar.style.width = '50%';
+
+            try {
+                const response = await fetch(`/api/weather?stations=${queryStr}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let hasThunder = false;
+                    let hasRain = false;
+                    
+                    stations.forEach(station => {
+                        const stationUpper = station.toUpperCase();
+                        const result = data.results[stationUpper];
+                        const placeholder = placeholders[stationUpper];
+                        
+                        if (result && !result.error) {
+                            const realCard = createCardElement(result);
+                            placeholder.replaceWith(realCard);
+                            
+                            const wxRaw = (result.decoded.weather || '').toLowerCase();
+                            if (wxRaw.includes('ts')) hasThunder = true;
+                            if (wxRaw.includes('ra') || wxRaw.includes('dz') || wxRaw.includes('sh')) hasRain = true;
+                        } else {
+                            placeholder.innerHTML = `
+                                <div class="card-header">
+                                    <div class="header-left">
+                                        <span class="station-id">${stationUpper}</span>
+                                        <span class="airport-name" style="color: #ef4444;">No Data</span>
+                                    </div>
+                                </div>
+                                <div style="color: var(--text-dim); font-size: 0.9rem;">${result ? result.error : 'Data unavailable'}</div>
+                            `;
+                        }
+                    });
+
+                    if (hasThunder) document.body.className = 'weather-thunder';
+                    else if (hasRain) document.body.className = 'weather-rain';
+                    else document.body.className = '';
+                } else {
+                    throw new Error(data.message || 'API Error');
+                }
+            } catch (err) {
+                stations.forEach(station => {
+                    const placeholder = placeholders[station.toUpperCase()];
+                    if (document.body.contains(placeholder)) {
+                        placeholder.innerHTML = `
+                            <div class="card-header">
+                                <div class="header-left">
+                                    <span class="station-id">${station.toUpperCase()}</span>
+                                    <span class="airport-name" style="color: #ef4444;">Uplink Failed</span>
+                                </div>
+                            </div>
+                            <div style="color: var(--text-dim); font-size: 0.9rem;">Unable to retrieve data.</div>
+                        `;
+                    }
+                });
+            } finally {
+                progressBar.style.width = '100%';
+                setTimeout(() => progressContainer.style.opacity = '0', 500);
+            }
         }
 
         btn.addEventListener('click', fetchWeather);
