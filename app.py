@@ -93,6 +93,30 @@ def api_weather():
     
     for icao in stations_list:
         cached_data = cached_batch.get(icao)
+        
+        # If cache miss, fetch on-demand and store
+        if not cached_data:
+            try:
+                live_result = get_station_details(icao)
+                raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
+                raw_taf = ''
+                payload_for_db = dict(live_result)
+                payload_for_db['history'] = list(payload_for_db.get('history', []))[:3]
+                upsert_weather(icao, raw_metar, raw_taf, payload_for_db)
+                
+                # Fetch back from DB to get the correct standard format
+                from db_manager import get_cached_weather
+                db_record = get_cached_weather(icao)
+                if db_record:
+                    cached_data = {
+                        "raw_metar": db_record.get('raw_metar', ''),
+                        "raw_taf": db_record.get('raw_taf', ''),
+                        "decoded": db_record.get('decoded_data', {}),
+                        "last_updated": db_record['last_updated'].isoformat()
+                    }
+            except Exception as e:
+                print(f"Dynamic fetch failed for {icao}: {e}", flush=True)
+
         if cached_data:
             c = cached_data['decoded']
             m = c.get('model', {})

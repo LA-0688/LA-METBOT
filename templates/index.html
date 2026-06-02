@@ -418,7 +418,7 @@
             const stations = query.replace(",", " ").split(/\s+/).filter(s => s.trim());
             const queryStr = stations.join(',');
             
-            const placeholders = {};
+            const placeholders = [];
             stations.forEach(station => {
                 const stationUpper = station.toUpperCase();
                 const placeholder = document.createElement('div');
@@ -433,7 +433,7 @@
                     <div style="color: var(--text-dim); font-size: 0.9rem;">Fetching live data from uplink...</div>
                 `;
                 cardsGrid.appendChild(placeholder);
-                placeholders[stationUpper] = placeholder;
+                placeholders.push({ icao: stationUpper, element: placeholder });
             });
 
             progressBar.style.width = '50%';
@@ -446,23 +446,21 @@
                     let hasThunder = false;
                     let hasRain = false;
                     
-                    stations.forEach(station => {
-                        const stationUpper = station.toUpperCase();
-                        const result = data.results[stationUpper];
-                        const placeholder = placeholders[stationUpper];
+                    placeholders.forEach(({ icao, element }) => {
+                        const result = data.results[icao];
                         
                         if (result && !result.error) {
                             const realCard = createCardElement(result);
-                            placeholder.replaceWith(realCard);
+                            element.replaceWith(realCard);
                             
                             const wxRaw = (result.decoded.weather || '').toLowerCase();
                             if (wxRaw.includes('ts')) hasThunder = true;
                             if (wxRaw.includes('ra') || wxRaw.includes('dz') || wxRaw.includes('sh')) hasRain = true;
                         } else {
-                            placeholder.innerHTML = `
+                            element.innerHTML = `
                                 <div class="card-header">
                                     <div class="header-left">
-                                        <span class="station-id">${stationUpper}</span>
+                                        <span class="station-id">${icao}</span>
                                         <span class="airport-name" style="color: #ef4444;">No Data</span>
                                     </div>
                                 </div>
@@ -478,13 +476,12 @@
                     throw new Error(data.message || 'API Error');
                 }
             } catch (err) {
-                stations.forEach(station => {
-                    const placeholder = placeholders[station.toUpperCase()];
-                    if (document.body.contains(placeholder)) {
-                        placeholder.innerHTML = `
+                placeholders.forEach(({ icao, element }) => {
+                    if (document.body.contains(element)) {
+                        element.innerHTML = `
                             <div class="card-header">
                                 <div class="header-left">
-                                    <span class="station-id">${station.toUpperCase()}</span>
+                                    <span class="station-id">${icao}</span>
                                     <span class="airport-name" style="color: #ef4444;">Uplink Failed</span>
                                 </div>
                             </div>
