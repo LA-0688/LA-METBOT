@@ -183,6 +183,14 @@
             const rawMetar = result.raw_metar ? highlightThreats(result.raw_metar) : '_No METAR data available._';
             const rawTaf = result.raw_taf ? highlightThreats(result.raw_taf) : '_No TAF data available._';
             
+            let displayName = result.name || "Unknown Station";
+            let iataCode = "";
+            const iataMatch = displayName.match(/\(([A-Z0-9]+)\)$/);
+            if (iataMatch) {
+                iataCode = iataMatch[1];
+                displayName = displayName.replace(/\([A-Z0-9]+\)$/, '').trim();
+            }
+
             let flightCatColor = 'inherit';
             if (result.decoded.flight_category === 'VFR') flightCatColor = '#22c55e';
             else if (result.decoded.flight_category === 'MVFR') flightCatColor = '#3b82f6';
@@ -193,8 +201,11 @@
                 <div class="card-header">
                     <div class="header-left">
                         <span class="station-id">${result.icao}</span>
-                        <span class="airport-name" style="font-size: 0.9rem; color: var(--text-dim); margin-top: 0.2rem;">${result.name}</span>
-                        <span class="airport-coords" style="font-size: 0.8rem; color: var(--text-dim); opacity: 0.7; margin-top: 0.1rem; font-family: 'JetBrains Mono', monospace;">${result.coords}</span>
+                        <span class="airport-name" style="font-size: 0.9rem; color: var(--text-dim); margin-top: 0.2rem;">${displayName}</span>
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.1rem;">
+                            ${iataCode ? `<span style="font-size: 0.8rem; font-weight: bold; color: var(--text-dim);">${iataCode}</span>` : ''}
+                            <span class="airport-coords" style="font-size: 0.8rem; color: var(--text-dim); opacity: 0.7; font-family: 'JetBrains Mono', monospace;">${result.coords}</span>
+                        </div>
                     </div>
                     <div class="header-center">
                         ${result.sun}
@@ -415,7 +426,8 @@
             progressContainer.style.opacity = '1';
             progressBar.style.width = '10%';
 
-            const stations = query.replace(",", " ").split(/\s+/).filter(s => s.trim());
+            let rawStations = query.replace(",", " ").split(/\s+/).filter(s => s.trim());
+            const stations = [...new Set(rawStations.map(s => s.toUpperCase()))];
             const queryStr = stations.join(',');
             
             const placeholders = [];
