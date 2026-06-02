@@ -82,8 +82,12 @@ def calculate_flight_category(vis_str, clouds_str):
 def api_weather():
     """Returns pure JSON for the frontend to render the UI."""
     from db_manager import get_weather_batch
-    stations = request.args.get('stations', '')
-    stations_list = [s.strip().upper() for s in stations.replace(",", " ").split() if s.strip()]
+    raw_stations = request.args.get('stations', '')
+    stations_list = []
+    for s in raw_stations.replace(",", " ").split():
+        s_clean = s.strip().upper()
+        if s_clean and s_clean not in stations_list:
+            stations_list.append(s_clean)
     
     if not stations_list:
         return jsonify({"status": "error", "message": "Please provide at least one station code."}), 400
@@ -233,7 +237,12 @@ if bot:
         
         print(f"\n[TELEGRAM] {pilot_name} {username} requested: {user_text}", flush=True)
         try:
-            stations_list = [s.strip().upper() for s in user_text.replace(",", " ").split() if s.strip()]
+            raw_list = user_text.replace(",", " ").split()
+            stations_list = []
+            for s in raw_list:
+                s_clean = s.strip().upper()
+                if s_clean and s_clean not in stations_list:
+                    stations_list.append(s_clean)
             if not stations_list:
                 bot.reply_to(message, "Please provide at least one ICAO station code (e.g. 'VIDP').")
                 return

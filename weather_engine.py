@@ -272,7 +272,8 @@ def safe_get(url: str, *, timeout: int = 3, retries: int = 0) -> Any:
 
 # ---------- Hardcoded Fallbacks for Missing Stations ----------
 KNOWN_STATIONS = {
-    'VANM': {'name': 'Navi Mumbai International Airport', 'lat': 18.99, 'lon': 73.06}
+    'VANM': {'name': 'Navi Mumbai International Airport', 'lat': 18.99, 'lon': 73.06},
+    'VEAB': {'name': 'Allahabad / Prayagraj Airport', 'lat': 25.4390, 'lon': 81.7339}
 }
 
 # ---------- In-memory caches ----------
@@ -1029,7 +1030,68 @@ def parse_raw_metar_to_dict(metar: str) -> dict:
         
     return model
 
+
 def get_station_details(station: str) -> dict:
+    from astral.sun import sun
+    from astral import LocationInfo
+    from datetime import datetime, timezone
+    
+    raw_data = _get_station_details_raw(station)
+    
+    lat = None
+    lon = None
+    name = raw_data.get('name', 'Unknown Station')
+    
+    # 1. Try to get lat/lon from NOAA
+    try:
+        info_url = f"https://aviationweather.gov/api/data/stationinfo?ids={station}&format=json"
+        from weather_engine import safe_get
+        info_data = safe_get(info_url, timeout=3, retries=1)
+        if info_data and isinstance(info_data, list) and len(info_data) > 0:
+            info = info_data[0]
+            lat = info.get('lat')
+            lon = info.get('lon')
+            if name == 'Unknown Station' or not name:
+                name = info.get('site', 'Unknown Station')
+    except Exception:
+        pass
+        
+    # 2. Try KNOWN_STATIONS fallback
+    if station in KNOWN_STATIONS:
+        fallback = KNOWN_STATIONS[station]
+        name = fallback.get('name', name)
+        if lat is None: lat = fallback.get('lat')
+        if lon is None: lon = fallback.get('lon')
+        
+    # 3. Compute coords_str and sun_str
+    coords_str = ""
+    sun_str = ""
+    if lat is not None and lon is not None:
+        lat_dir = 'N' if lat >= 0 else 'S'
+        lon_dir = 'E' if lon >= 0 else 'W'
+        lat_deg = int(abs(lat))
+        lat_min = (abs(lat) - lat_deg) * 60
+        lon_deg = int(abs(lon))
+        lon_min = (abs(lon) - lon_deg) * 60
+        coords_str = f"{lat_dir}{lat_deg:02d}{lat_min:04.1f} {lon_dir}{lon_deg:03d}{lon_min:04.1f}"
+        
+        try:
+            now = datetime.now(timezone.utc)
+            loc = LocationInfo(latitude=lat, longitude=lon)
+            s = sun(loc.observer, date=now.date())
+            sunrise = s['sunrise'].strftime('%H:%M UTC')
+            sunset = s['sunset'].strftime('%H:%M UTC')
+            sun_str = f"🌅 {sunrise} 🌇 {sunset}"
+        except Exception:
+            pass
+            
+    raw_data['name'] = name
+    raw_data['coords'] = coords_str
+    raw_data['sun'] = sun_str
+    
+    return raw_data
+
+def _get_station_details_raw(station: str) -> dict:
     """Fetches detailed structural JSON for the visual station grid and history."""
     station = station.strip().upper()
     try:

@@ -501,16 +501,33 @@ def indian_bulk_sync():
                 location_parts = [p for p in [name, city, country] if p]
                 station_name = ", ".join(location_parts) if location_parts else "Unknown Station"
                 
-                lat_dir = "N" if lat >= 0 else "S"
-                lon_dir = "E" if lon >= 0 else "W"
-                coords_str = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
+            except Exception:
+                pass
                 
+        # Fallback to KNOWN_STATIONS in case mwgg is missing it
+        from weather_engine import KNOWN_STATIONS
+        if icao in KNOWN_STATIONS:
+            fallback = KNOWN_STATIONS[icao]
+            station_name = fallback.get('name', station_name)
+            if lat is None: lat = fallback.get('lat')
+            if lon is None: lon = fallback.get('lon')
+            
+        if lat is not None and lon is not None:
+            try:
                 from astral import LocationInfo
                 from astral.sun import sun
+                lat_dir = 'N' if lat >= 0 else 'S'
+                lon_dir = 'E' if lon >= 0 else 'W'
+                lat_deg = int(abs(lat))
+                lat_min = (abs(lat) - lat_deg) * 60
+                lon_deg = int(abs(lon))
+                lon_min = (abs(lon) - lon_deg) * 60
+                coords_str = f"{lat_dir}{lat_deg:02d}{lat_min:04.1f} {lon_dir}{lon_deg:03d}{lon_min:04.1f}"
+                
                 loc = LocationInfo(latitude=lat, longitude=lon)
                 s = sun(loc.observer, date=now.date())
-                sunrise = s['sunrise'].strftime('%H:%MZ')
-                sunset = s['sunset'].strftime('%H:%MZ')
+                sunrise = s['sunrise'].strftime('%H:%M UTC')
+                sunset = s['sunset'].strftime('%H:%M UTC')
                 sun_str = f"🌅 {sunrise} 🌇 {sunset}"
             except Exception:
                 pass
