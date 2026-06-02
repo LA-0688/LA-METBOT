@@ -1053,6 +1053,9 @@ def get_station_details(station: str) -> dict:
             lon = info.get('lon')
             if name == 'Unknown Station' or not name:
                 name = info.get('site', 'Unknown Station')
+            iata = info.get('iataId')
+            if iata and str(iata).upper() not in ["", "0", "NONE"]:
+                name = f"{name} ({str(iata).upper()})"
     except Exception:
         pass
         

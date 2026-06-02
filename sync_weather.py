@@ -262,17 +262,50 @@ def fetch_global_metars() -> list:
                             location_parts = [p for p in [name, city, country] if p]
                             station_name = ", ".join(location_parts) if location_parts else "Unknown Station"
                             
-                            lat_dir = "N" if lat >= 0 else "S"
-                            lon_dir = "E" if lon >= 0 else "W"
-                            coords_str = f"{abs(lat):.2f}°{lat_dir} - {abs(lon):.2f}°{lon_dir}"
+                            iata = airport_info.get("iata", "")
+                            if iata and str(iata).upper() not in ["", "0", "NONE"]:
+                                station_name = f"{station_name} ({str(iata).upper()})"
+                            
+                            lat_dir = 'N' if lat >= 0 else 'S'
+                            lon_dir = 'E' if lon >= 0 else 'W'
+                            lat_deg = int(abs(lat))
+                            lat_min = (abs(lat) - lat_deg) * 60
+                            lon_deg = int(abs(lon))
+                            lon_min = (abs(lon) - lon_deg) * 60
+                            coords_str = f"{lat_dir}{lat_deg:02d}{lat_min:04.1f} {lon_dir}{lon_deg:03d}{lon_min:04.1f}"
                             
                             loc = LocationInfo(latitude=lat, longitude=lon)
                             s = sun(loc.observer, date=now.date())
-                            sunrise = s['sunrise'].strftime('%H:%MZ')
-                            sunset = s['sunset'].strftime('%H:%MZ')
+                            sunrise = s['sunrise'].strftime('%H:%M UTC')
+                            sunset = s['sunset'].strftime('%H:%M UTC')
                             sun_str = f"🌅 {sunrise} 🌇 {sunset}"
                         except Exception:
                             pass
+                            
+                    # Fallback to KNOWN_STATIONS in case mwgg is missing it
+                    from weather_engine import KNOWN_STATIONS
+                    if icao in KNOWN_STATIONS:
+                        fallback = KNOWN_STATIONS[icao]
+                        station_name = fallback.get('name', station_name)
+                        if coords_str == "":
+                            fallback_lat = fallback.get('lat')
+                            fallback_lon = fallback.get('lon')
+                            if fallback_lat is not None and fallback_lon is not None:
+                                lat_dir = 'N' if fallback_lat >= 0 else 'S'
+                                lon_dir = 'E' if fallback_lon >= 0 else 'W'
+                                lat_deg = int(abs(fallback_lat))
+                                lat_min = (abs(fallback_lat) - lat_deg) * 60
+                                lon_deg = int(abs(fallback_lon))
+                                lon_min = (abs(fallback_lon) - lon_deg) * 60
+                                coords_str = f"{lat_dir}{lat_deg:02d}{lat_min:04.1f} {lon_dir}{lon_deg:03d}{lon_min:04.1f}"
+                                try:
+                                    loc = LocationInfo(latitude=fallback_lat, longitude=fallback_lon)
+                                    s = sun(loc.observer, date=now.date())
+                                    sunrise = s['sunrise'].strftime('%H:%M UTC')
+                                    sunset = s['sunset'].strftime('%H:%M UTC')
+                                    sun_str = f"🌅 {sunrise} 🌇 {sunset}"
+                                except Exception:
+                                    pass
                             
                     decoded_data = {
                         "icao": icao,
@@ -500,6 +533,9 @@ def indian_bulk_sync():
                 
                 location_parts = [p for p in [name, city, country] if p]
                 station_name = ", ".join(location_parts) if location_parts else "Unknown Station"
+                iata = airport_info.get("iata", "")
+                if iata and str(iata).upper() not in ["", "0", "NONE"]:
+                    station_name = f"{station_name} ({str(iata).upper()})"
                 
             except Exception:
                 pass
@@ -542,6 +578,9 @@ def indian_bulk_sync():
             "coords_str": coords_str,
             "sun_str": sun_str
         }
+        
+        if icao == "VIDP":
+            print(f"[DEBUG] VIDP decoded_data name is: {station_name}", flush=True)
         
         local_taf = indian_tafs.get(icao, "")
         bulk_records.append((icao, raw_metar, local_taf, decoded_data))
