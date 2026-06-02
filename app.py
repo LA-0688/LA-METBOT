@@ -140,8 +140,8 @@ def api_weather():
             results[icao] = {
                 "icao": c.get('icao', icao),
                 "name": c.get('name', 'Unknown Station'),
-                "coords": c.get('coords', ''),
-                "sun": c.get('sun', ''),
+                "coords": c.get('coords_str', c.get('coords', '')),
+                "sun": c.get('sun_str', c.get('sun', '')),
                 "raw_metar": raw_metar,
                 "metar_time_ago": get_elapsed_str(raw_metar).replace(' (', '').replace(')', '').strip() if raw_metar else '',
                 "raw_taf": raw_taf,
