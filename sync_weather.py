@@ -579,9 +579,6 @@ def indian_bulk_sync():
             "sun_str": sun_str
         }
         
-        if icao == "VIDP":
-            print(f"[DEBUG] VIDP decoded_data name is: {station_name}", flush=True)
-        
         local_taf = indian_tafs.get(icao, "")
         bulk_records.append((icao, raw_metar, local_taf, decoded_data))
 
