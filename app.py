@@ -243,7 +243,7 @@ if bot:
                 if cached_data:
                     c = cached_data['decoded_data']
                     m = c.get('model', {})
-                    md = f"### 📍 {c.get('icao', icao)} | {c.get('station_name', c.get('name', 'Unknown Station'))} | {c.get('coords_str', '')} | {c.get('sun_str', '')}\n\n"
+                    md = f"### 📍 {c.get('icao', icao)} | {c.get('name', c.get('station_name', 'Unknown Station'))} | {c.get('coords', c.get('coords_str', ''))} | {c.get('sun', c.get('sun_str', ''))}\n\n"
                     
                     history = c.get('history', [])
                     raw_metar = history[0] if history else ""
