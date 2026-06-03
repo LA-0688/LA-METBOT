@@ -77,7 +77,13 @@ def parse_weather_string(raw_str):
                 decoded["visibility"] = f"{sm_val} sm"
 
     # 3. Weather
-    wx_matches = re.finditer(r'\b(-|\+|VC)?(TS|SH|DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)+\b', raw_str)
+    wx_search_str = raw_str
+    # Ignore station identifiers before the time group to prevent false weather matches (e.g., VAPO -> VA + PO)
+    time_match = re.search(r'\b[0-9]{6}Z\b', wx_search_str)
+    if time_match:
+        wx_search_str = wx_search_str[time_match.end():]
+        
+    wx_matches = re.finditer(r'\b(-|\+|VC)?(TS|SH|DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)+\b', wx_search_str)
     wx_list = []
     for m in wx_matches:
         full_code = m.group(0)
