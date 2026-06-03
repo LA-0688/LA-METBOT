@@ -5,6 +5,7 @@ from weather_engine import get_instant_weather, get_station_details
 from db_manager import get_cached_weather, upsert_weather, get_weather_batch
 import re
 from datetime import datetime, timezone
+import decoder
 
 # Initialize the Flask Web Server
 app = Flask(__name__)
@@ -158,6 +159,8 @@ def api_weather():
                     "altimeter": m.get('altimeter', 'N/A'),
                     "flight_category": flight_cat
                 },
+                "decoded_metar": decoder.decode_metar(raw_metar),
+                "decoded_taf": decoder.decode_taf(raw_taf),
                 "last_updated": cached_data.get('last_updated', '')
             }
         else:
@@ -260,13 +263,30 @@ if bot:
                     else:
                         md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
                         
-                    md += "*Decoded:*\n"
-                    md += f"  🔹 **Wind**: {m.get('windStr', 'N/A')}\n"
-                    md += f"  🔹 **Visibility**: {m.get('visibility', 'N/A')}\n"
-                    md += f"  🔹 **Weather**: {m.get('weather', 'NONE')}\n"
-                    md += f"  🔹 **Clouds**: {m.get('clouds', 'CLEAR')}\n"
-                    md += f"  🔹 **Temp**: {m.get('temp', 'N/A')} | **Dew**: {m.get('dew', 'N/A')}\n"
-                    md += f"  🔹 **Altimeter**: {m.get('altimeter', 'N/A')}\n\n"
+                    md += "📖 **Official Decode:**\n"
+                    dec_metar = decoder.decode_metar(raw_metar)
+                    if dec_metar:
+                        md += f"  🔹 **Wind**: {dec_metar.get('wind', 'N/A')}\n"
+                        md += f"  🔹 **Visibility**: {dec_metar.get('visibility', 'N/A')}\n"
+                        md += f"  🔹 **Weather**: {dec_metar.get('weather', 'NONE')}\n"
+                        md += f"  🔹 **Clouds**: {dec_metar.get('clouds', 'CLEAR')}\n"
+                        md += f"  🔹 **Temp**: {dec_metar.get('temp', 'N/A')} | **Dew**: {dec_metar.get('dew', 'N/A')}\n"
+                        md += f"  🔹 **Altimeter**: {dec_metar.get('altimeter', 'N/A')}\n"
+                    
+                    dec_taf = decoder.decode_taf(raw_taf)
+                    if dec_taf:
+                        md += "\n📅 **TAF Forecast Periods:**\n"
+                        init = dec_taf["initial"]
+                        md += f"  ⏳ **Initial Forecast** ({init.get('period', 'N/A')}):\n"
+                        md += f"      Wind: {init.get('wind', 'N/A')} | Vis: {init.get('visibility', 'N/A')}\n"
+                        md += f"      Wx: {init.get('weather', 'None')} | Clouds: {init.get('clouds', 'Clear')}\n"
+                        for chg in dec_taf.get("changes", []):
+                            md += f"  ⏳ **{chg.get('type')}** ({chg.get('period', 'N/A')}):\n"
+                            if chg.get('wind') != "N/A": md += f"      Wind: {chg.get('wind')}\n"
+                            if chg.get('visibility') != "N/A": md += f"      Vis: {chg.get('visibility')}\n"
+                            if chg.get('weather') != "None": md += f"      Wx: {chg.get('weather')}\n"
+                            if chg.get('clouds') != "Clear": md += f"      Clouds: {chg.get('clouds')}\n"
+                    md += "\n"
                     weather_data += md
                 else:
                     weather_data += get_instant_weather(icao) + "\n\n"

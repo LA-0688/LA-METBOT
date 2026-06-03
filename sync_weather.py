@@ -7,9 +7,11 @@ import csv
 import gzip
 from datetime import datetime, timezone, timedelta
 from astral.sun import sun
+import concurrent.futures
 from astral import LocationInfo
 from db_manager import upsert_weather, bulk_upsert_weather
 from weather_engine import get_station_details
+from decoder import parse_raw_metar_to_bulk_record
 
 # =====================================================================
 # GLOBAL BULK INGESTION ENGINE
@@ -307,6 +309,8 @@ def fetch_global_metars() -> list:
                                 except Exception:
                                     pass
                             
+                    raw_taf = global_tafs.get(icao, "")
+                    
                     decoded_data = {
                         "icao": icao,
                         "name": station_name,
@@ -314,10 +318,11 @@ def fetch_global_metars() -> list:
                         "sun": sun_str,
                         "time": time_str,
                         "model": model,
-                        "history": [raw_metar]
+                        "history": [raw_metar],
+                        "decoded_metar": decoder.decode_metar(raw_metar),
+                        "decoded_taf": decoder.decode_taf(raw_taf)
                     }
                     
-                    raw_taf = global_tafs.get(icao, "")
                     records.append((icao, raw_metar, raw_taf, decoded_data))
         else:
             print(f"[GLOBAL SYNC] NOAA returned status {resp.status_code}")
@@ -568,6 +573,8 @@ def indian_bulk_sync():
             except Exception:
                 pass
 
+        local_taf = indian_tafs.get(icao, "")
+        
         decoded_data = {
             "icao": icao,
             "name": station_name,
@@ -576,10 +583,11 @@ def indian_bulk_sync():
             "history": [raw_metar] if raw_metar else [],
             "station_name": station_name,
             "coords_str": coords_str,
-            "sun_str": sun_str
+            "sun_str": sun_str,
+            "decoded_metar": decoder.decode_metar(raw_metar),
+            "decoded_taf": decoder.decode_taf(local_taf)
         }
         
-        local_taf = indian_tafs.get(icao, "")
         bulk_records.append((icao, raw_metar, local_taf, decoded_data))
 
     # Bulk write all Indian airports in one transaction

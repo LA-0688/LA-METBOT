@@ -233,14 +233,40 @@
                         </div>
                     </div>
                     <div class="decoded-view">
-                        <p><em>Decoded:</em><br>
-                        🔹 <strong>Wind</strong>: ${result.decoded.windStr}<br>
-                        🔹 <strong>Visibility</strong>: ${result.decoded.visibility}<br>
-                        🔹 <strong>Weather</strong>: ${result.decoded.weather}<br>
-                        🔹 <strong>Clouds</strong>: ${result.decoded.clouds}<br>
-                        🔹 <strong>Temp</strong>: ${result.decoded.temp} | <strong>Dew</strong>: ${result.decoded.dew}<br>
-                        🔹 <strong>Altimeter</strong>: ${result.decoded.altimeter}<br>
-                        🔹 <strong>Flight Rules</strong>: <strong style="color: ${flightCatColor};">${result.decoded.flight_category}</strong></p>
+                        ${result.decoded_metar ? `
+                        <div class="decoded-metar">
+                            <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; font-family: 'JetBrains Mono', monospace; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">METAR DECODED</div>
+                            🔹 <strong>Wind</strong>: ${result.decoded_metar.wind || 'N/A'}<br>
+                            🔹 <strong>Visibility</strong>: ${result.decoded_metar.visibility || 'N/A'}<br>
+                            🔹 <strong>Weather</strong>: ${result.decoded_metar.weather || 'NONE'}<br>
+                            🔹 <strong>Clouds</strong>: ${result.decoded_metar.clouds || 'CLEAR'}<br>
+                            🔹 <strong>Temp</strong>: ${result.decoded_metar.temp || 'N/A'} | <strong>Dew</strong>: ${result.decoded_metar.dew || 'N/A'}<br>
+                            🔹 <strong>Altimeter</strong>: ${result.decoded_metar.altimeter || 'N/A'}<br>
+                            🔹 <strong>Flight Rules</strong>: <strong style="color: ${flightCatColor};">${result.decoded_metar.flight_rules || 'N/A'}</strong>
+                        </div>` : '<p><em>No METAR decode available.</em></p>'}
+
+                        ${result.decoded_taf ? `
+                        <div class="decoded-taf" style="margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid rgba(255,255,255,0.1);">
+                            <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.5rem; font-family: 'JetBrains Mono', monospace; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">TAF FORECAST PERIODS</div>
+                            <div style="margin-bottom: 0.8rem;">
+                                <strong>⏳ Initial Forecast (${result.decoded_taf.initial.period || 'N/A'}):</strong><br>
+                                <div style="padding-left: 1rem; font-size: 0.9rem; margin-top: 0.2rem; line-height: 1.4;">
+                                    Wind: ${result.decoded_taf.initial.wind || 'N/A'} | Vis: ${result.decoded_taf.initial.visibility || 'N/A'}<br>
+                                    Wx: ${result.decoded_taf.initial.weather || 'None'} | Clouds: ${result.decoded_taf.initial.clouds || 'Clear'}
+                                </div>
+                            </div>
+                            ${result.decoded_taf.changes.map(chg => `
+                            <div style="margin-bottom: 0.8rem;">
+                                <strong>⏳ ${chg.type} (${chg.period || 'N/A'}):</strong><br>
+                                <div style="padding-left: 1rem; font-size: 0.9rem; margin-top: 0.2rem; line-height: 1.4;">
+                                    ${chg.wind !== 'N/A' ? `Wind: ${chg.wind}<br>` : ''}
+                                    ${chg.visibility !== 'N/A' ? `Vis: ${chg.visibility}<br>` : ''}
+                                    ${chg.weather !== 'None' ? `Wx: ${chg.weather}<br>` : ''}
+                                    ${chg.clouds !== 'Clear' ? `Clouds: ${chg.clouds}` : ''}
+                                </div>
+                            </div>
+                            `).join('')}
+                        </div>` : '<div style="margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid rgba(255,255,255,0.1);"><p><em>No TAF forecast available.</em></p></div>'}
                     </div>
                 </div>
             `;
