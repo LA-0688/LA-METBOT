@@ -11,7 +11,8 @@ import concurrent.futures
 from astral import LocationInfo
 from db_manager import upsert_weather, bulk_upsert_weather
 from weather_engine import get_station_details
-from decoder import parse_raw_metar_to_bulk_record
+import decoder
+
 
 # =====================================================================
 # GLOBAL BULK INGESTION ENGINE
@@ -420,13 +421,15 @@ def indian_bulk_sync():
 
     # ---------- Extract ALL Indian METARs and TAFs from combined text ----------
     # Indian ICAO prefixes: VA (West), VE (East), VI (North), VO (South)
-    pattern = r'\b(V[AEIO][A-Z]{2})\s+([0-9]{6}Z[^=\n]*)'
+    pattern = r'\b(V[AEIO][A-Z]{2})\s+([0-9]{6}Z[^=]*)'
     matches = list(re.finditer(pattern, combined_text))
 
     indian_tafs = {}
 
     for m in matches:
-        raw = m.group(0).strip().rstrip('=')
+        raw = m.group(0).replace('\n', ' ').replace('\r', '').strip().rstrip('=')
+        # Clean up double spaces caused by newlines
+        raw = re.sub(r'\s+', ' ', raw)
         icao = m.group(1)
 
         # Distinguish TAF lines (contain validity periods like 2218/2400)
