@@ -212,19 +212,9 @@ def api_station():
         return jsonify({"error": f"Failed to retrieve weather: {str(e)}"}), 500
 
 # ==========================================
-# 2. TELEGRAM WEBHOOK ENDPOINT
+# 2. TELEGRAM BOT
 # ==========================================
 if bot:
-    @app.route(f"/{TELEGRAM_TOKEN}", methods=['POST'])
-    def telegram_webhook():
-        """Telegram servers will send POST requests here when someone texts the bot."""
-        if request.headers.get('content-type') == 'application/json':
-            json_string = request.get_data().decode('utf-8')
-            update = telebot.types.Update.de_json(json_string)
-            bot.process_new_updates([update])
-            return "OK", 200
-        return "Forbidden", 403
-
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         bot.reply_to(message, "✈️ Welcome! Text me any ICAO airport codes (like 'CYYZ' or 'KLAX KJFK') and I will instantly fetch the decoded weather for you!")
@@ -298,7 +288,13 @@ if bot:
         except Exception as e:
             bot.reply_to(message, f"Sorry, I ran into an error: {str(e)}")
 
+import threading
+
 if __name__ == "__main__":
+    if bot:
+        print("[TELEGRAM] Starting local bot polling...", flush=True)
+        threading.Thread(target=bot.polling, kwargs={"none_stop": True}, daemon=True).start()
+        
     # When deployed on Render, the PORT is provided by the environment
     port = int(os.environ.get('PORT', 5000))
     app.run(host="0.0.0.0", port=port)
