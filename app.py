@@ -104,7 +104,7 @@ def api_weather():
             try:
                 live_result = get_station_details(icao)
                 raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
-                raw_taf = ''
+                raw_taf = live_result.get('raw_taf', '')
                 payload_for_db = dict(live_result)
                 payload_for_db['history'] = list(payload_for_db.get('history', []))[:3]
                 upsert_weather(icao, raw_metar, raw_taf, payload_for_db)
@@ -200,7 +200,7 @@ def api_station():
         
         # Adapt to existing get_station_details output structure
         raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
-        raw_taf = '' # TAF is not exposed by get_station_details currently
+        raw_taf = live_result.get('raw_taf', '') 
         decoded_payload = live_result
         
         # Only keep the last three METARs

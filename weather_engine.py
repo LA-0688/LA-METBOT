@@ -404,7 +404,9 @@ def get_instant_weather(stations: str) -> str:
             urls[f'noaa_metar_{s}'] = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{s}.TXT"
             urls[f'noaa_taf_{s}'] = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{s}.TXT"
             urls[f'checkwx_metar_{s}'] = f"https://api.checkwx.com/metar/{s}/decoded"
+            urls[f'checkwx_taf_{s}'] = f"https://api.checkwx.com/taf/{s}/decoded"
             urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
+            urls[f'avwx_taf_{s}'] = f"https://avwx.rest/api/taf/{s}"
             if s.upper().startswith('V'):
                 urls[f'aai_metar_{s}'] = f"AAI_TRIGGER_{s}"
                 urls[f'aai_taf_{s}'] = f"AAI_TAF_TRIGGER_{s}"
@@ -911,6 +913,33 @@ def get_instant_weather(stations: str) -> str:
                                 issue_time_formatted = o_dt.strftime('%Y-%m-%d %H:%M UTC')
                             else:
                                 issue_time_formatted = "N/A"
+                                
+                # Try CheckWX TAF Fallback
+                if not raw_taf:
+                    cwx_data = results.get(f'checkwx_taf_{station}')
+                    if cwx_data and cwx_data.get('results', 0) > 0:
+                        try:
+                            item = cwx_data['data'][0]
+                            raw_taf = item['raw_text'].strip()
+                            while raw_taf.upper().startswith('TAF'):
+                                raw_taf = raw_taf[3:].strip()
+                            obs_dt = datetime.fromisoformat(item['timestamp']['issued'].replace('Z', '+00:00'))
+                            issue_time_formatted = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+                        except Exception:
+                            pass
+                            
+                # Try AVWX TAF Fallback
+                if not raw_taf:
+                    avwx_data = results.get(f'avwx_taf_{station}')
+                    if avwx_data and 'raw' in avwx_data and 'time' in avwx_data:
+                        try:
+                            raw_taf = avwx_data['raw'].strip()
+                            while raw_taf.upper().startswith('TAF'):
+                                raw_taf = raw_taf[3:].strip()
+                            obs_dt = datetime.fromisoformat(avwx_data['time']['dt'].replace('Z', '+00:00'))
+                            issue_time_formatted = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+                        except Exception:
+                            pass
                 
                 if raw_taf:
                     result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
@@ -1116,6 +1145,45 @@ def _get_station_details_raw(station: str) -> dict:
         if info_data and isinstance(info_data, list) and len(info_data) > 0:
             station_name = info_data[0].get('site', 'Unknown Station')
             
+        raw_taf = ""
+        try:
+            taf_url = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT"
+            taf_text = safe_get(taf_url, timeout=3, retries=1)
+            if taf_text and len(taf_text.split('\n')) >= 2:
+                raw_taf = " ".join(taf_text.strip().split('\n')[1:])
+                while raw_taf.upper().startswith('TAF'):
+                    raw_taf = raw_taf[3:].strip()
+        except Exception:
+            pass
+            
+        if not raw_taf:
+            cwx_api_key = os.environ.get('CHECKWX_API_KEY')
+            if cwx_api_key:
+                try:
+                    cwx_taf_url = f"https://api.checkwx.com/taf/{station}/decoded"
+                    cwx_taf_resp = requests.get(cwx_taf_url, headers={'X-API-Key': cwx_api_key}, timeout=3)
+                    if cwx_taf_resp.status_code == 200:
+                        c_data = cwx_taf_resp.json()
+                        if c_data.get('results', 0) > 0:
+                            raw_taf = c_data['data'][0]['raw_text']
+                            while raw_taf.upper().startswith('TAF'):
+                                raw_taf = raw_taf[3:].strip()
+                except Exception:
+                    pass
+                    
+        if not raw_taf:
+            avwx_api_key = os.environ.get('AVWX_API_KEY')
+            if avwx_api_key:
+                try:
+                    avwx_taf_url = f"https://avwx.rest/api/taf/{station}"
+                    avwx_taf_resp = requests.get(avwx_taf_url, headers={'Authorization': f'Token {avwx_api_key}'}, timeout=3)
+                    if avwx_taf_resp.status_code == 200:
+                        raw_taf = avwx_taf_resp.json().get('raw', '')
+                        while raw_taf.upper().startswith('TAF'):
+                            raw_taf = raw_taf[3:].strip()
+                except Exception:
+                    pass
+            
         # Determine if AviationWeather data is empty or stale (older than 2 hours)
         is_stale = True
         if data:
@@ -1148,7 +1216,8 @@ def _get_station_details_raw(station: str) -> dict:
                         "name": station_name,
                         "time": aai_dt.strftime('%Y-%m-%d %H:%M UTC'),
                         "model": model_data,
-                        "history": [aai_metar]
+                        "history": [aai_metar],
+                        "raw_taf": raw_taf
                     }
             except Exception:
                 pass
@@ -1167,7 +1236,8 @@ def _get_station_details_raw(station: str) -> dict:
                                 "name": station_name,
                                 "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
                                 "model": model_data,
-                                "history": [amss_metar]
+                                "history": [amss_metar],
+                                "raw_taf": raw_taf
                             }
             except Exception:
                 pass
@@ -1182,7 +1252,8 @@ def _get_station_details_raw(station: str) -> dict:
                         "name": station_name,
                         "time": og_dt.strftime('%Y-%m-%d %H:%M UTC'),
                         "model": model_data,
-                        "history": [og_metar]
+                        "history": [og_metar],
+                        "raw_taf": raw_taf
                     }
             except Exception:
                 pass
@@ -1199,7 +1270,8 @@ def _get_station_details_raw(station: str) -> dict:
                         "name": station_name,
                         "time": aai_dt.strftime('%Y-%m-%d %H:%M UTC'),
                         "model": model_data,
-                        "history": [aai_taf]
+                        "history": [aai_taf],
+                        "raw_taf": raw_taf
                     }
             except Exception:
                 pass
@@ -1216,7 +1288,8 @@ def _get_station_details_raw(station: str) -> dict:
                         "name": station_name,
                         "time": og_dt.strftime('%Y-%m-%d %H:%M UTC'),
                         "model": model_data,
-                        "history": [og_taf]
+                        "history": [og_taf],
+                        "raw_taf": raw_taf
                     }
             except Exception:
                 pass
@@ -1273,7 +1346,8 @@ def _get_station_details_raw(station: str) -> dict:
                                         "weather": wx_str,
                                         "altimeter": qnh_str
                                     },
-                                    "history": [item.get('raw_text', '')]
+                                    "history": [item.get('raw_text', '')],
+                                    "raw_taf": raw_taf
                                 }
                 except Exception:
                     pass
@@ -1330,7 +1404,8 @@ def _get_station_details_raw(station: str) -> dict:
                                 "weather": wx_str,
                                 "altimeter": qnh_str
                             },
-                            "history": [a_data.get('raw', '')]
+                            "history": [a_data.get('raw', '')],
+                            "raw_taf": raw_taf
                         }
                 except Exception as e:
                     import traceback
@@ -1351,7 +1426,8 @@ def _get_station_details_raw(station: str) -> dict:
                     "weather": "N/A",
                     "altimeter": "N/A"
                 },
-                "history": []
+                "history": [],
+                "raw_taf": raw_taf
             }
         
         # Sort by observation time descending
@@ -1462,7 +1538,8 @@ def _get_station_details_raw(station: str) -> dict:
                 "weather": wx,
                 "altimeter": altim_str
             },
-            "history": history
+            "history": history,
+            "raw_taf": raw_taf
         }
     except Exception as e:
         import traceback
