@@ -263,7 +263,7 @@ if bot:
                     else:
                         md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
                         
-                    md += "📖 **Official Decode:**\n"
+                    md += "\n\n📖 **Official Decode:**\n"
                     dec_metar = decoder.decode_metar(raw_metar)
                     if dec_metar:
                         md += f"  🔹 **Wind**: {dec_metar.get('wind', 'N/A')}\n"
