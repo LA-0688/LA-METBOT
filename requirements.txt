@@ -1,0 +1,9 @@
+requests
+pyTelegramBotAPI
+python-dotenv
+flask
+gunicorn
+beautifulsoup4
+psycopg[binary]
+psycopg_pool
+astral
