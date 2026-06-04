@@ -326,36 +326,37 @@ if bot:
         return "Invalid request", 403
 
 # ==========================================
-# APP EXECUTION & SMART TOGGLE
+# APP SETUP & SMART TOGGLE
+# ==========================================
+if bot:
+    # 1. RENDER PRODUCTION (Webhook Mode)
+    if os.environ.get('RENDER'):
+        print("[TELEGRAM] Render production detected. Configuring Webhooks...", flush=True)
+        # Render automatically provides your app's base URL in this environment variable
+        base_url = os.environ.get('RENDER_EXTERNAL_URL')
+        webhook_url = f"{base_url}/{TELEGRAM_TOKEN}"
+        
+        # Clear old configurations and set the live webhook
+        bot.remove_webhook()
+        time.sleep(1) 
+        bot.set_webhook(url=webhook_url)
+        print(f"[TELEGRAM] Webhook successfully bound to {base_url}", flush=True)
+
+    # 2. LOCAL DEVELOPMENT (Polling Mode)
+    else:
+        print("[TELEGRAM] Local environment detected. Starting infinite polling...", flush=True)
+        # CRITICAL: You must remove the webhook first, otherwise Telegram blocks polling!
+        bot.remove_webhook()
+        time.sleep(1)
+        threading.Thread(
+            target=bot.infinity_polling, 
+            kwargs={"timeout": 10, "long_polling_timeout": 5}, 
+            daemon=True
+        ).start()
+
+# ==========================================
+# LOCAL FLASK EXECUTION
 # ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
-    
-    if bot:
-        # 1. RENDER PRODUCTION (Webhook Mode)
-        if os.environ.get('RENDER'):
-            print("[TELEGRAM] Render production detected. Configuring Webhooks...", flush=True)
-            # Render automatically provides your app's base URL in this environment variable
-            base_url = os.environ.get('RENDER_EXTERNAL_URL')
-            webhook_url = f"{base_url}/{TELEGRAM_TOKEN}"
-            
-            # Clear old configurations and set the live webhook
-            bot.remove_webhook()
-            time.sleep(1) 
-            bot.set_webhook(url=webhook_url)
-            print(f"[TELEGRAM] Webhook successfully bound to {base_url}", flush=True)
-
-        # 2. LOCAL DEVELOPMENT (Polling Mode)
-        else:
-            print("[TELEGRAM] Local environment detected. Starting infinite polling...", flush=True)
-            # CRITICAL: You must remove the webhook first, otherwise Telegram blocks polling!
-            bot.remove_webhook()
-            time.sleep(1)
-            threading.Thread(
-                target=bot.infinity_polling, 
-                kwargs={"timeout": 10, "long_polling_timeout": 5}, 
-                daemon=True
-            ).start()
-
-    # Start the Flask web server
     app.run(host="0.0.0.0", port=port)
