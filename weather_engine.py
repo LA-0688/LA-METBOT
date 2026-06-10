@@ -104,10 +104,21 @@ def parse_amss_metar(raw_text: str, icao: str) -> str:
         return None
     # Stop at the line end so we never merge two stacked reports into one.
     pattern = rf"({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*=?)"
-    match = re.search(pattern, raw_text, re.IGNORECASE)
-    if match:
-        return f"{match.group(1)} {match.group(2)}".strip().rstrip("=")
-    return None
+    # The combined feed stacks several regional pages, each of which may carry
+    # a different cycle of the same station. Scan every match and keep the
+    # newest observation rather than whichever page happens to appear first.
+    best_metar = None
+    best_dt = None
+    for match in re.finditer(pattern, raw_text, re.IGNORECASE):
+        candidate = f"{match.group(1)} {match.group(2)}".strip().rstrip("=")
+        # Skip TAF lines (they carry a validity period like 1000/1106).
+        if re.search(r'\b[0-9]{4}/[0-9]{4}\b', candidate):
+            continue
+        obs_dt = parse_amss_time(candidate)
+        if best_metar is None or (obs_dt and (best_dt is None or obs_dt > best_dt)):
+            best_metar = candidate
+            best_dt = obs_dt
+    return best_metar
 
 def parse_amss_time(metar_str: str) -> datetime | None:
     """Robustly parse the day/hour/minute timestamp from an AMSS METAR string.

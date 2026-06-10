@@ -215,6 +215,66 @@ def api_station():
 # ==========================================
 # 2. TELEGRAM BOT
 # ==========================================
+def build_station_markdown(icao, cached_data):
+    """Renders one station's cached weather as the bot's Markdown reply block."""
+    c = cached_data['decoded_data']
+    md = f"### 📍 {c.get('icao', icao)} | {c.get('name', c.get('station_name', 'Unknown Station'))} | {c.get('coords', c.get('coords_str', ''))} | {c.get('sun', c.get('sun_str', ''))}\n\n"
+
+    history = c.get('history', [])
+    raw_metar = history[0] if history else ""
+    if raw_metar:
+        metar_elapsed = get_elapsed_str(raw_metar)
+        md += f"✈️ **METAR**{metar_elapsed}\n```\n{raw_metar}\n```\n\n"
+    else:
+        md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
+
+    raw_taf = cached_data.get('raw_taf', '')
+    if raw_taf:
+        taf_elapsed = get_elapsed_str(raw_taf)
+        md += f"📅 **TAF**{taf_elapsed}\n```\n{raw_taf}\n```\n\n"
+    else:
+        md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
+
+    md += "\n\n📖 **Official Decode:**\n"
+    dec_metar = decoder.decode_metar(raw_metar)
+    if dec_metar:
+        md += f"  🔹 **Wind**: {dec_metar.get('wind', 'N/A')}\n"
+        md += f"  🔹 **Visibility**: {dec_metar.get('visibility', 'N/A')}\n"
+        md += f"  🔹 **Weather**: {dec_metar.get('weather', 'NONE')}\n"
+        md += f"  🔹 **Clouds**: {dec_metar.get('clouds', 'CLEAR')}\n"
+        md += f"  🔹 **Temp**: {dec_metar.get('temp', 'N/A')} | **Dew**: {dec_metar.get('dew', 'N/A')}\n"
+        md += f"  🔹 **Altimeter**: {dec_metar.get('altimeter', 'N/A')}\n"
+
+    dec_taf = decoder.decode_taf(raw_taf)
+    if dec_taf:
+        md += "\n📅 **TAF Forecast Periods:**\n"
+        init = dec_taf["initial"]
+        md += f"  ⏳ **Initial Forecast** ({init.get('period', 'N/A')}):\n"
+        md += f"      Wind: {init.get('wind', 'N/A')} | Vis: {init.get('visibility', 'N/A')}\n"
+        md += f"      Wx: {init.get('weather', 'None')} | Clouds: {init.get('clouds', 'Clear')}\n"
+        for chg in dec_taf.get("changes", []):
+            md += f"  ⏳ **{chg.get('type')}** ({chg.get('period', 'N/A')}):\n"
+            if chg.get('wind') != "N/A": md += f"      Wind: {chg.get('wind')}\n"
+            if chg.get('visibility') != "N/A": md += f"      Vis: {chg.get('visibility')}\n"
+            if chg.get('weather') != "None": md += f"      Wx: {chg.get('weather')}\n"
+            if chg.get('clouds') != "Clear": md += f"      Clouds: {chg.get('clouds')}\n"
+    md += "\n"
+    return md
+
+def fetch_and_cache_station(icao):
+    """Cache-miss path: fetch live once, store it, and serve from the cache so
+    the next request for this station is instant. Returns the cached row or None."""
+    try:
+        live_result = get_station_details(icao)
+        raw_metar = live_result.get('history', [''])[0] if live_result.get('history') else ''
+        raw_taf = live_result.get('raw_taf', '')
+        payload_for_db = dict(live_result)
+        payload_for_db['history'] = list(payload_for_db.get('history', []))[:3]
+        upsert_weather(icao, raw_metar, raw_taf, payload_for_db)
+    except Exception as e:
+        print(f"[TELEGRAM] Live fetch failed for {icao}: {e}", flush=True)
+    return get_cached_weather(icao)
+
 if bot:
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
@@ -232,60 +292,17 @@ if bot:
             stations_list = []
             for s in raw_list:
                 s_clean = s.strip().upper()
-                if s_clean and s_clean not in stations_list:
+                if s_clean and ICAO_RE.match(s_clean) and s_clean not in stations_list:
                     stations_list.append(s_clean)
             if not stations_list:
-                bot.reply_to(message, "Please provide at least one ICAO station code (e.g. 'VIDP').")
+                bot.reply_to(message, "Please provide at least one valid 4-letter ICAO station code (e.g. 'VIDP').")
                 return
 
             weather_data = ""
             for icao in stations_list:
-                cached_data = get_cached_weather(icao)
+                cached_data = get_cached_weather(icao) or fetch_and_cache_station(icao)
                 if cached_data:
-                    c = cached_data['decoded_data']
-                    m = c.get('model', {})
-                    md = f"### 📍 {c.get('icao', icao)} | {c.get('name', c.get('station_name', 'Unknown Station'))} | {c.get('coords', c.get('coords_str', ''))} | {c.get('sun', c.get('sun_str', ''))}\n\n"
-                    
-                    history = c.get('history', [])
-                    raw_metar = history[0] if history else ""
-                    if raw_metar:
-                        metar_elapsed = get_elapsed_str(raw_metar)
-                        md += f"✈️ **METAR**{metar_elapsed}\n```\n{raw_metar}\n```\n\n"
-                    else:
-                        md += f"✈️ *METAR*\n_No recent METAR data available._\n\n"
-                        
-                    raw_taf = cached_data.get('raw_taf', '')
-                    if raw_taf:
-                        taf_elapsed = get_elapsed_str(raw_taf)
-                        md += f"📅 **TAF**{taf_elapsed}\n```\n{raw_taf}\n```\n\n"
-                    else:
-                        md += f"📅 **TAF**\n_No recent TAF forecast available._\n\n"
-                        
-                    md += "\n\n📖 **Official Decode:**\n"
-                    dec_metar = decoder.decode_metar(raw_metar)
-                    if dec_metar:
-                        md += f"  🔹 **Wind**: {dec_metar.get('wind', 'N/A')}\n"
-                        md += f"  🔹 **Visibility**: {dec_metar.get('visibility', 'N/A')}\n"
-                        md += f"  🔹 **Weather**: {dec_metar.get('weather', 'NONE')}\n"
-                        md += f"  🔹 **Clouds**: {dec_metar.get('clouds', 'CLEAR')}\n"
-                        md += f"  🔹 **Temp**: {dec_metar.get('temp', 'N/A')} | **Dew**: {dec_metar.get('dew', 'N/A')}\n"
-                        md += f"  🔹 **Altimeter**: {dec_metar.get('altimeter', 'N/A')}\n"
-                    
-                    dec_taf = decoder.decode_taf(raw_taf)
-                    if dec_taf:
-                        md += "\n📅 **TAF Forecast Periods:**\n"
-                        init = dec_taf["initial"]
-                        md += f"  ⏳ **Initial Forecast** ({init.get('period', 'N/A')}):\n"
-                        md += f"      Wind: {init.get('wind', 'N/A')} | Vis: {init.get('visibility', 'N/A')}\n"
-                        md += f"      Wx: {init.get('weather', 'None')} | Clouds: {init.get('clouds', 'Clear')}\n"
-                        for chg in dec_taf.get("changes", []):
-                            md += f"  ⏳ **{chg.get('type')}** ({chg.get('period', 'N/A')}):\n"
-                            if chg.get('wind') != "N/A": md += f"      Wind: {chg.get('wind')}\n"
-                            if chg.get('visibility') != "N/A": md += f"      Vis: {chg.get('visibility')}\n"
-                            if chg.get('weather') != "None": md += f"      Wx: {chg.get('weather')}\n"
-                            if chg.get('clouds') != "Clear": md += f"      Clouds: {chg.get('clouds')}\n"
-                    md += "\n"
-                    weather_data += md
+                    weather_data += build_station_markdown(icao, cached_data)
                 else:
                     weather_data += get_instant_weather(icao) + "\n\n"
             

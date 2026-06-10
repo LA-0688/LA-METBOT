@@ -9,6 +9,23 @@ DB_PATH = 'weather.db'
 # and get_weather_batch so every endpoint applies the same freshness rule.
 STALE_AFTER = timedelta(minutes=30)
 
+# Shared by upsert_weather and bulk_upsert_weather. On conflict, an empty
+# incoming METAR keeps the previous one — and in that case last_updated must
+# also be kept, otherwise a failed fetch would re-stamp old weather as fresh
+# and the STALE_AFTER gate would keep serving it instead of re-fetching.
+UPSERT_QUERY = """
+INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(icao_code) DO UPDATE SET
+    raw_metar = COALESCE(NULLIF(excluded.raw_metar, ''), airport_weather.raw_metar),
+    raw_taf = COALESCE(NULLIF(excluded.raw_taf, ''), airport_weather.raw_taf),
+    decoded_data = excluded.decoded_data,
+    last_updated = CASE
+        WHEN IFNULL(excluded.raw_metar, '') <> '' THEN excluded.last_updated
+        ELSE airport_weather.last_updated
+    END;
+"""
+
 def get_connection():
     """Returns an active SQLite connection with row_factory enabled.
 
@@ -118,17 +135,7 @@ def upsert_weather(icao, raw_metar, raw_taf, decoded_json):
             # Process history array in pure Python
             decoded_json = _process_history(existing, raw_metar, decoded_json)
 
-            query = """
-            INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(icao_code) DO UPDATE SET 
-                raw_metar = COALESCE(NULLIF(excluded.raw_metar, ''), airport_weather.raw_metar),
-                raw_taf = COALESCE(NULLIF(excluded.raw_taf, ''), airport_weather.raw_taf),
-                decoded_data = excluded.decoded_data,
-                last_updated = excluded.last_updated;
-            """
-            
-            cursor.execute(query, (icao, raw_metar, raw_taf, json.dumps(decoded_json), now))
+            cursor.execute(UPSERT_QUERY, (icao, raw_metar, raw_taf, json.dumps(decoded_json), now))
             conn.commit()
     except Exception as e:
         print(f"Database write error: {e}")
@@ -165,17 +172,7 @@ def bulk_upsert_weather(records):
 
                 decoded_json = _process_history(existing, raw_metar, decoded_json)
 
-                query = """
-                INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(icao_code) DO UPDATE SET 
-                    raw_metar = COALESCE(NULLIF(excluded.raw_metar, ''), airport_weather.raw_metar),
-                    raw_taf = COALESCE(NULLIF(excluded.raw_taf, ''), airport_weather.raw_taf),
-                    decoded_data = excluded.decoded_data,
-                    last_updated = excluded.last_updated;
-                """
-                
-                cursor.execute(query, (icao, raw_metar, raw_taf, json.dumps(decoded_json), now))
+                cursor.execute(UPSERT_QUERY, (icao, raw_metar, raw_taf, json.dumps(decoded_json), now))
                 
             conn.commit()
         print(f"[BULK DB] Successfully upserted {len(records)} airport records.", flush=True)
