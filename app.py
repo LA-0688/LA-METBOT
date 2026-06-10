@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify, render_template
 from weather_engine import get_instant_weather, get_station_details
 from db_manager import get_cached_weather, upsert_weather, get_weather_batch
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import decoder
 
 # Initialize the Flask Web Server
@@ -18,6 +18,31 @@ else:
     bot = None
     print("[WARNING] TELEGRAM_TOKEN not set. Telegram bot is disabled.", flush=True)
 
+def resolve_obs_time(day, hour, minute):
+    """Resolves a DDHHMM observation group to a real UTC datetime.
+
+    Tries the current month and the previous month, skipping invalid dates
+    (e.g. day 31 in a 30-day month), and returns the most recent candidate
+    that is not in the future. Returns None if nothing valid is found.
+    """
+    if not (1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    now = datetime.now(timezone.utc)
+    for months_back in (0, 1):
+        month = now.month - months_back
+        year = now.year
+        if month < 1:
+            month += 12
+            year -= 1
+        try:
+            cand = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        # Allow a small skew for clock differences before treating as "future".
+        if cand <= now + timedelta(minutes=5):
+            return cand
+    return None
+
 def get_elapsed_str(raw_text):
     """Extracts DDHHMMZ from METAR or TAF and computes '(Xh Ym ago)'"""
     if not raw_text:
@@ -26,25 +51,16 @@ def get_elapsed_str(raw_text):
     if not match:
         return ""
     day, hour, minute = int(match.group(1)), int(match.group(2)), int(match.group(3))
-    now = datetime.now(timezone.utc)
-    month, year = now.month, now.year
-    if day > now.day + 15:
-        month -= 1
-        if month == 0:
-            month = 12
-            year -= 1
-    try:
-        obs_time = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
-        diff = now - obs_time
-        mins = int(diff.total_seconds() / 60)
-        if mins < 0:
-            return ""
-        if mins < 60:
-            return f" ({mins}m ago)"
-        else:
-            return f" ({mins//60}h {mins%60}m ago)"
-    except Exception:
+    obs_time = resolve_obs_time(day, hour, minute)
+    if obs_time is None:
         return ""
+    now = datetime.now(timezone.utc)
+    mins = int((now - obs_time).total_seconds() / 60)
+    if mins < 0:
+        return ""
+    if mins < 60:
+        return f" ({mins}m ago)"
+    return f" ({mins//60}h {mins%60}m ago)"
 
 # ==========================================
 # 1. THE WEBSITE ENDPOINTS
@@ -54,44 +70,23 @@ def index():
     """Serves the beautiful frontend website!"""
     return render_template("index.html")
 
-def calculate_flight_category(vis_str, clouds_str):
-    vis_m = 10000
-    if vis_str:
-        v = vis_str.lower()
-        if 'm' in v and 'k' not in v:
-            try: vis_m = int(''.join(filter(str.isdigit, v)))
-            except: pass
-        elif 'k' in v:
-            try: vis_m = float(''.join([ch for ch in v if ch.isdigit() or ch=='.'])) * 1000
-            except: pass
-
-    ceiling_ft = 99999
-    if clouds_str and "CAVOK" not in clouds_str.upper():
-        matches = re.findall(r'(?:BKN|OVC|VV)([0-9]{3})', clouds_str.upper())
-        for m in matches:
-            try:
-                c_ft = int(m) * 100
-                if c_ft < ceiling_ft: ceiling_ft = c_ft
-            except: pass
-
-    if ceiling_ft < 500 or vis_m < 1600: return "LIFR"
-    elif ceiling_ft < 1000 or vis_m < 4800: return "IFR"
-    elif ceiling_ft <= 3000 or vis_m <= 8000: return "MVFR"
-    else: return "VFR"
+# A valid ICAO station code is exactly 4 alphanumeric characters. Validating
+# this prevents arbitrary user input from being interpolated into the outbound
+# URLs the weather engine builds.
+ICAO_RE = re.compile(r'^[A-Z0-9]{4}$')
 
 @app.route("/api/weather", methods=['GET'])
 def api_weather():
     """Returns pure JSON for the frontend to render the UI."""
-    from db_manager import get_weather_batch
     raw_stations = request.args.get('stations', '')
     stations_list = []
     for s in raw_stations.replace(",", " ").split():
         s_clean = s.strip().upper()
-        if s_clean and s_clean not in stations_list:
+        if s_clean and ICAO_RE.match(s_clean) and s_clean not in stations_list:
             stations_list.append(s_clean)
-    
+
     if not stations_list:
-        return jsonify({"status": "error", "message": "Please provide at least one station code."}), 400
+        return jsonify({"status": "error", "message": "Please provide at least one valid 4-letter ICAO station code."}), 400
         
     results = {}
     cached_batch = get_weather_batch(stations_list)
@@ -110,7 +105,6 @@ def api_weather():
                 upsert_weather(icao, raw_metar, raw_taf, payload_for_db)
                 
                 # Fetch back from DB to get the correct standard format
-                from db_manager import get_cached_weather
                 db_record = get_cached_weather(icao)
                 if db_record:
                     cached_data = {
@@ -134,9 +128,12 @@ def api_weather():
             temp_c = None
             if m.get('temp') and '°C' in m['temp']:
                 try: temp_c = int(m['temp'].replace('°C', ''))
-                except: pass
-                
-            flight_cat = calculate_flight_category(m.get('visibility', ''), m.get('clouds', ''))
+                except Exception: pass
+
+            # Single source of truth for flight category: the decoder. This keeps
+            # the card badge and the "decoded" panel from ever disagreeing.
+            decoded_metar = decoder.decode_metar(raw_metar)
+            flight_cat = decoded_metar.get('flight_rules', 'N/A') if decoded_metar else 'N/A'
 
             results[icao] = {
                 "icao": c.get('icao', icao),
@@ -159,7 +156,7 @@ def api_weather():
                     "altimeter": m.get('altimeter', 'N/A'),
                     "flight_category": flight_cat
                 },
-                "decoded_metar": decoder.decode_metar(raw_metar),
+                "decoded_metar": decoded_metar,
                 "decoded_taf": decoder.decode_taf(raw_taf),
                 "last_updated": cached_data.get('last_updated', '')
             }
@@ -181,7 +178,7 @@ def api_station():
     icao = request.args.get('icao', '').strip().upper()
     force_refresh = request.args.get('refresh', 'false').lower() == 'true'
     
-    if not icao or len(icao) != 4:
+    if not ICAO_RE.match(icao):
         return jsonify({"error": "Invalid ICAO code"}), 400
 
     # 1. Try checking the database first (Bypassed if user clicks 'Force Refresh')
@@ -212,7 +209,8 @@ def api_station():
         
         return jsonify(decoded_payload)
     except Exception as e:
-        return jsonify({"error": f"Failed to retrieve weather: {str(e)}"}), 500
+        print(f"[api_station] Failed to retrieve weather for {icao}: {e}", flush=True)
+        return jsonify({"error": "Failed to retrieve weather data."}), 500
 
 # ==========================================
 # 2. TELEGRAM BOT
@@ -297,66 +295,53 @@ if bot:
                 for chunk in chunks:
                     try:
                         bot.reply_to(message, chunk, parse_mode="Markdown")
-                    except:
+                    except Exception:
                         bot.reply_to(message, chunk) # Fallback if markdown is broken in chunk
             else:
                 try:
                     bot.reply_to(message, weather_data, parse_mode="Markdown")
                 except telebot.apihelper.ApiTelegramException:
-                    bot.reply_to(message, weather_data) 
-                    
+                    bot.reply_to(message, weather_data)
+
         except Exception as e:
-            bot.reply_to(message, f"Sorry, I ran into an error: {str(e)}")
+            print(f"[TELEGRAM] Error handling message: {e}", flush=True)
+            bot.reply_to(message, "Sorry, I ran into an error processing that request. Please try again.")
 
 import threading
 import time
 
 # ==========================================
-# 3. TELEGRAM WEBHOOK ROUTE (Production)
+# APP SETUP (Background Polling Mode)
 # ==========================================
-if bot:
-    # Use the token as a hidden URL path so random internet scanners can't hit it
-    @app.route('/' + TELEGRAM_TOKEN, methods=['POST'])
-    def telegram_webhook():
-        if request.headers.get('content-type') == 'application/json':
-            json_string = request.get_data().decode('utf-8')
-            update = telebot.types.Update.de_json(json_string)
-            bot.process_new_updates([update])
-            return "!", 200
-        return "Invalid request", 403
+# This app uses long-polling, not webhooks. Running both at once makes Telegram
+# return 409 Conflict, so there is intentionally no webhook route here.
+#
+# RUN_BOT can be set to 0 to disable polling entirely (required if you ever run
+# more than one Gunicorn worker, since each worker would otherwise poll the same
+# token and conflict).
+if bot and os.getenv("RUN_BOT", "1") == "1":
+    print("[TELEGRAM] Starting infinite polling in background thread...", flush=True)
 
-# ==========================================
-# APP SETUP & SMART TOGGLE
-# ==========================================
-if bot:
-    # 1. RENDER PRODUCTION (Webhook Mode)
-    if os.environ.get('RENDER'):
-        print("[TELEGRAM] Render production detected. Configuring Webhooks...", flush=True)
-        # Render automatically provides your app's base URL in this environment variable
-        base_url = os.environ.get('RENDER_EXTERNAL_URL')
-        webhook_url = f"{base_url}/{TELEGRAM_TOKEN}"
-        
-        # Clear old configurations and set the live webhook
+    # Safely clear any stuck webhooks before starting polling
+    try:
         bot.remove_webhook()
-        time.sleep(1) 
-        bot.set_webhook(url=webhook_url)
-        print(f"[TELEGRAM] Webhook successfully bound to {base_url}", flush=True)
+    except Exception:
+        pass
 
-    # 2. LOCAL DEVELOPMENT (Polling Mode)
-    else:
-        print("[TELEGRAM] Local environment detected. Starting infinite polling...", flush=True)
-        # CRITICAL: You must remove the webhook first, otherwise Telegram blocks polling!
-        bot.remove_webhook()
-        time.sleep(1)
-        threading.Thread(
-            target=bot.infinity_polling, 
-            kwargs={"timeout": 10, "long_polling_timeout": 5}, 
-            daemon=True
-        ).start()
+    time.sleep(1)
+
+    # Run polling in a daemon thread so it doesn't block the Flask server
+    threading.Thread(
+        target=bot.infinity_polling,
+        kwargs={"timeout": 10, "long_polling_timeout": 5},
+        daemon=True
+    ).start()
+elif bot:
+    print("[TELEGRAM] RUN_BOT=0 -> polling disabled.", flush=True)
 
 # ==========================================
 # LOCAL FLASK EXECUTION
 # ==========================================
 if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 7860))
     app.run(host="0.0.0.0", port=port)

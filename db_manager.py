@@ -1,144 +1,183 @@
 import os
-import psycopg
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
-from psycopg_pool import ConnectionPool
+import sqlite3
+import json
 from datetime import datetime, timedelta, timezone
 
-_pool = None
+DB_PATH = 'weather.db'
 
-def get_pool():
-    """Lazily initializes and returns the connection pool."""
-    global _pool
-    if _pool is None:
-        db_url = os.environ.get("DATABASE_URL")
-        if db_url:
-            db_url = db_url.strip()
-        # Ensure minimum of 1 connection and max of 10 to avoid connection limits
-        # timeout=2.0 fails fast if pool is empty. kwargs={"connect_timeout": 2} fails fast on DB connection issue
-        # Supabase uses PgBouncer in transaction mode, which breaks psycopg3 prepared statements. Must disable them!
-        _pool = ConnectionPool(db_url, min_size=1, max_size=10, timeout=2.0, kwargs={"connect_timeout": 2, "prepare_threshold": None})
-    return _pool
+# How long a cached record is considered fresh. Used by BOTH get_cached_weather
+# and get_weather_batch so every endpoint applies the same freshness rule.
+STALE_AFTER = timedelta(minutes=30)
+
+def get_connection():
+    """Returns an active SQLite connection with row_factory enabled.
+
+    WAL mode + a busy timeout let the background sync worker and the web
+    workers read/write the same file concurrently without 'database is locked'.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+    except Exception:
+        pass
+    return conn
+
+def init_db():
+    """Creates the necessary tables if they don't exist."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS airport_weather (
+                icao_code TEXT PRIMARY KEY,
+                raw_metar TEXT,
+                raw_taf TEXT,
+                decoded_data TEXT,
+                last_updated TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+# Ensure the database is initialized at script startup
+init_db()
 
 def get_cached_weather(icao):
     """Retrieves airport data if it exists and is less than 30 minutes old."""
     try:
-        with get_pool().connection(timeout=2.0) as conn:
-            with conn.cursor(row_factory=dict_row) as cursor:
-                query = "SELECT * FROM airport_weather WHERE icao_code = %s"
-                cursor.execute(query, (icao.upper(),))
-                result = cursor.fetchone()
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM airport_weather WHERE icao_code = ?", (icao.upper(),))
+            row = cursor.fetchone()
+            
+            if row:
+                result = dict(row)
+                now = datetime.now(timezone.utc)
+                last_updated_str = result['last_updated']
                 
-                if result:
-                    now = datetime.now(timezone.utc)
-                    last_updated = result['last_updated']
-                    
-                    # Ensure datetime is timezone-aware to prevent crash when subtracting
+                # Parse ISO format timestamp securely
+                try:
+                    last_updated = datetime.fromisoformat(last_updated_str)
                     if last_updated.tzinfo is None:
                         last_updated = last_updated.replace(tzinfo=timezone.utc)
-                        
-                    data_age = now - last_updated
-                    if data_age < timedelta(minutes=30):
-                        return result # Data is fresh!
-                return None # Cache miss or data is stale
+                except ValueError:
+                    return None
+                    
+                data_age = now - last_updated
+                if data_age < STALE_AFTER:
+                    # Save the parsed datetime back into the dictionary
+                    result['last_updated'] = last_updated
+                    # Parse the JSON string back into a dictionary
+                    result['decoded_data'] = json.loads(result['decoded_data']) if result['decoded_data'] else {}
+                    return result 
+            return None 
     except Exception as e:
         print(f"Database read error: {e}")
         return None
 
+def _process_history(existing_row, new_raw_metar, decoded_json):
+    """Helper to process history in pure Python since SQLite lacks JSONB array functions."""
+    history = []
+    
+    # Extract existing history if it exists
+    if existing_row and existing_row['decoded_data']:
+        try:
+            existing_data = json.loads(existing_row['decoded_data'])
+            history = existing_data.get('history', [])
+            if not isinstance(history, list):
+                history = []
+        except Exception:
+            pass
+
+    # Insert the new METAR at the beginning if valid and not a duplicate
+    if new_raw_metar and new_raw_metar not in history:
+        history.insert(0, new_raw_metar)
+        
+    # Keep only unique elements, preserving order
+    unique_history = []
+    for item in history:
+        if item and item not in unique_history:
+            unique_history.append(item)
+            
+    # Limit to the last 3 items
+    decoded_json['history'] = unique_history[:3]
+    return decoded_json
+
 def upsert_weather(icao, raw_metar, raw_taf, decoded_json):
-    """Inserts or updates weather records cleanly using PostgreSQL UPSERT syntax."""
+    """Inserts or updates weather records using SQLite UPSERT."""
     try:
-        with get_pool().connection(timeout=2.0) as conn:
-            with conn.cursor() as cursor:
-                query = """
-                INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (icao_code) 
-                DO UPDATE SET 
-                    raw_metar = EXCLUDED.raw_metar,
-                    raw_taf = COALESCE(NULLIF(EXCLUDED.raw_taf, ''), airport_weather.raw_taf),
-                    decoded_data = jsonb_set(
-                        EXCLUDED.decoded_data,
-                        '{history}',
-                        (
-                            SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb) FROM (
-                                SELECT EXCLUDED.raw_metar AS elem WHERE EXCLUDED.raw_metar != ''
-                                UNION ALL
-                                SELECT elem FROM jsonb_array_elements_text(
-                                    CASE 
-                                        WHEN airport_weather.decoded_data->'history' IS NULL THEN '[]'::jsonb
-                                        WHEN jsonb_typeof(airport_weather.decoded_data->'history') != 'array' THEN '[]'::jsonb
-                                        ELSE airport_weather.decoded_data->'history'
-                                    END
-                                ) AS elem
-                                WHERE elem != EXCLUDED.raw_metar AND elem != ''
-                            ) sub LIMIT 3
-                        )::jsonb
-                    ),
-                    last_updated = EXCLUDED.last_updated;
-                """
-                now = datetime.now(timezone.utc)
-                
-                # Use Jsonb wrapper instead of json.dumps to avoid Postgres type mismatch
-                cursor.execute(query, (icao.upper(), raw_metar, raw_taf, Jsonb(decoded_json), now))
-                
-                # Note: The context manager (with conn:) automatically commits on success
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            icao = icao.upper()
+            now = datetime.now(timezone.utc).isoformat()
+            
+            # Fetch existing record for history processing
+            cursor.execute("SELECT raw_metar, decoded_data FROM airport_weather WHERE icao_code = ?", (icao,))
+            existing = cursor.fetchone()
+            
+            # Process history array in pure Python
+            decoded_json = _process_history(existing, raw_metar, decoded_json)
+
+            query = """
+            INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(icao_code) DO UPDATE SET 
+                raw_metar = COALESCE(NULLIF(excluded.raw_metar, ''), airport_weather.raw_metar),
+                raw_taf = COALESCE(NULLIF(excluded.raw_taf, ''), airport_weather.raw_taf),
+                decoded_data = excluded.decoded_data,
+                last_updated = excluded.last_updated;
+            """
+            
+            cursor.execute(query, (icao, raw_metar, raw_taf, json.dumps(decoded_json), now))
+            conn.commit()
     except Exception as e:
         print(f"Database write error: {e}")
 
 def bulk_upsert_weather(records):
-    """Bulk inserts/updates thousands of weather records in a single transaction.
-    
-    Args:
-        records: list of tuples (icao_code, raw_metar, raw_taf, decoded_json_dict)
-    
-    Returns:
-        Number of records successfully upserted, or 0 on failure.
-    """
+    """Bulk inserts/updates thousands of weather records in a single transaction."""
     if not records:
         return 0
     
     try:
-        # Use a longer timeout for bulk operations (up to 30s for thousands of rows)
-        with get_pool().connection(timeout=10.0) as conn:
-            with conn.cursor() as cursor:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Pre-fetch all existing rows in a single query instead of one
+            # SELECT per record, so this is genuinely a bulk operation.
+            icaos = [r[0].upper() for r in records]
+            existing_by_icao = {}
+            CHUNK = 500
+            for i in range(0, len(icaos), CHUNK):
+                chunk = icaos[i:i + CHUNK]
+                placeholders = ','.join(['?'] * len(chunk))
+                cursor.execute(
+                    f"SELECT icao_code, raw_metar, decoded_data FROM airport_weather WHERE icao_code IN ({placeholders})",
+                    tuple(chunk),
+                )
+                for row in cursor.fetchall():
+                    existing_by_icao[row['icao_code']] = row
+
+            for icao, raw_metar, raw_taf, decoded_json in records:
+                icao = icao.upper()
+                now = datetime.now(timezone.utc).isoformat()
+
+                existing = existing_by_icao.get(icao)
+
+                decoded_json = _process_history(existing, raw_metar, decoded_json)
+
                 query = """
                 INSERT INTO airport_weather (icao_code, raw_metar, raw_taf, decoded_data, last_updated)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (icao_code) 
-                DO UPDATE SET 
-                    raw_metar = COALESCE(NULLIF(EXCLUDED.raw_metar, ''), airport_weather.raw_metar),
-                    raw_taf = COALESCE(NULLIF(EXCLUDED.raw_taf, ''), airport_weather.raw_taf),
-                    decoded_data = jsonb_set(
-                        EXCLUDED.decoded_data,
-                        '{history}',
-                        (
-                            SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb) FROM (
-                                SELECT EXCLUDED.raw_metar AS elem WHERE EXCLUDED.raw_metar != ''
-                                UNION ALL
-                                SELECT elem FROM jsonb_array_elements_text(
-                                    CASE 
-                                        WHEN airport_weather.decoded_data->'history' IS NULL THEN '[]'::jsonb
-                                        WHEN jsonb_typeof(airport_weather.decoded_data->'history') != 'array' THEN '[]'::jsonb
-                                        ELSE airport_weather.decoded_data->'history'
-                                    END
-                                ) AS elem
-                                WHERE elem != EXCLUDED.raw_metar AND elem != ''
-                            ) sub LIMIT 3
-                        )::jsonb
-                    ),
-                    last_updated = EXCLUDED.last_updated;
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(icao_code) DO UPDATE SET 
+                    raw_metar = COALESCE(NULLIF(excluded.raw_metar, ''), airport_weather.raw_metar),
+                    raw_taf = COALESCE(NULLIF(excluded.raw_taf, ''), airport_weather.raw_taf),
+                    decoded_data = excluded.decoded_data,
+                    last_updated = excluded.last_updated;
                 """
-                now = datetime.now(timezone.utc)
                 
-                # Build parameter rows with Jsonb wrapper for each record
-                params = [
-                    (icao.upper(), raw_metar, raw_taf, Jsonb(decoded_json), now)
-                    for icao, raw_metar, raw_taf, decoded_json in records
-                ]
+                cursor.execute(query, (icao, raw_metar, raw_taf, json.dumps(decoded_json), now))
                 
-                cursor.executemany(query, params)
-                
+            conn.commit()
         print(f"[BULK DB] Successfully upserted {len(records)} airport records.", flush=True)
         return len(records)
     except Exception as e:
@@ -146,33 +185,49 @@ def bulk_upsert_weather(records):
         return 0
 
 def get_weather_batch(icao_list):
-    """
-    LAYER 1 READER: Fetches the absolute latest weather for multiple airports instantly.
-    """
+    """Fetches the absolute latest weather for multiple airports instantly."""
     if not icao_list:
         return {}
         
     try:
-        # Use our 2-second timeout defensive pool
-        with get_pool().connection(timeout=2.0) as conn:
-            with conn.cursor(row_factory=dict_row) as cursor:
-                # Create a parameterized query for multiple airports
-                placeholders = ','.join(['%s'] * len(icao_list))
-                query = f"SELECT * FROM airport_weather WHERE icao_code IN ({placeholders})"
-                
-                cursor.execute(query, tuple(icao_list))
-                results = cursor.fetchall()
-                
-                # Format into a clean dictionary where the ICAO code is the key
-                weather_data = {}
-                for row in results:
-                    weather_data[row['icao_code']] = {
-                        "raw_metar": row.get('raw_metar', ''),
-                        "raw_taf": row.get('raw_taf', ''),
-                        "decoded": row.get('decoded_data', {}),
-                        "last_updated": row['last_updated'].isoformat()
-                    }
-                return weather_data
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join(['?'] * len(icao_list))
+            query = f"SELECT * FROM airport_weather WHERE icao_code IN ({placeholders})"
+            cursor.execute(query, tuple(icao_list))
+            
+            now = datetime.now(timezone.utc)
+            weather_data = {}
+            for row in cursor.fetchall():
+                icao = row['icao_code']
+                decoded_data = {}
+                try:
+                    decoded_data = json.loads(row['decoded_data']) if row['decoded_data'] else {}
+                except Exception:
+                    pass
+
+                dt = None
+                if row['last_updated']:
+                    try:
+                        dt = datetime.fromisoformat(row['last_updated'])
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                    except Exception:
+                        pass
+
+                # Apply the same freshness rule as get_cached_weather. Stale rows
+                # are skipped so the caller treats them as a cache miss and
+                # re-fetches live data instead of serving arbitrarily old weather.
+                if dt is None or (now - dt) >= STALE_AFTER:
+                    continue
+
+                weather_data[icao] = {
+                    "raw_metar": row['raw_metar'] or '',
+                    "raw_taf": row['raw_taf'] or '',
+                    "decoded": decoded_data,
+                    "last_updated": dt
+                }
+            return weather_data
     except Exception as e:
         print(f"[LAYER 1 DB ERROR] Failed to fetch weather batch: {e}")
         return {}

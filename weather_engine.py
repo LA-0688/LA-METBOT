@@ -1,5 +1,5 @@
 import requests, time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
 import concurrent.futures
 import os
@@ -10,29 +10,55 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from urllib3.poolmanager import PoolManager
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+def _legacy_ssl_context():
+    """SSL context for older government servers that negotiate small DH keys /
+    legacy ciphers. We relax the cipher SECLEVEL (the actual reason these
+    adapters exist) but KEEP certificate and hostname verification on, so the
+    connection is still authenticated and not open to MITM.
+    """
+    ctx = ssl.create_default_context()
+    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+    return ctx
 
 class CustomAdapter(requests.adapters.HTTPAdapter):
-    """Custom adapter to bypass DH_KEY_TOO_SMALL errors on older government servers."""
+    """Adapter to bypass DH_KEY_TOO_SMALL errors on older government servers,
+    while still verifying certificates."""
     def init_poolmanager(self, *args, **kwargs):
-        ctx = ssl.create_default_context()
-        ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        kwargs['ssl_context'] = ctx
+        kwargs['ssl_context'] = _legacy_ssl_context()
         return super().init_poolmanager(*args, **kwargs)
 
 class TLSAdapter(requests.adapters.HTTPAdapter):
-    """Custom adapter to handle older Indian gov server SSL handshakes safely."""
+    """Adapter to handle older Indian gov server SSL handshakes, while still
+    verifying certificates."""
     def init_poolmanager(self, connections, maxsize, block=False):
-        ctx = ssl.create_default_context()
-        ctx.set_ciphers('DEFAULT@SECLEVEL=1') # Bypasses strict cipher blocks
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, ssl_context=ctx)
+        self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, ssl_context=_legacy_ssl_context())
 
 
 load_dotenv()
+
+def resolve_obs_time(day, hour, minute):
+    """Resolves a DDHHMM observation group to a real UTC datetime.
+
+    Tries the current month then the previous month, skipping impossible dates
+    (e.g. day 31 in a 30-day month) instead of raising, and returns the most
+    recent candidate that is not in the future. Returns None if none is valid.
+    """
+    if not (1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    now = datetime.now(timezone.utc)
+    for months_back in (0, 1):
+        month = now.month - months_back
+        year = now.year
+        if month < 1:
+            month += 12
+            year -= 1
+        try:
+            cand = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if cand <= now + timedelta(minutes=5):
+            return cand
+    return None
 
 # ---------- Helper: AMSS Delhi Scraper ----------
 def fetch_all_imd_regional_nodes() -> str:
@@ -53,7 +79,7 @@ def fetch_all_imd_regional_nodes() -> str:
         try:
             session = requests.Session()
             session.mount('https://', CustomAdapter())
-            resp = session.get(url, headers=headers, verify=False, timeout=8)
+            resp = session.get(url, headers=headers, timeout=8)
             if resp.status_code == 200:
                 return BeautifulSoup(resp.text, 'html.parser').get_text() + "\n"
         except Exception:
@@ -76,7 +102,8 @@ def fetch_all_imd_regional_nodes() -> str:
 def parse_amss_metar(raw_text: str, icao: str) -> str:
     if not raw_text or not icao.upper().startswith('V'):
         return None
-    pattern = rf"({icao.upper()})\s+([0-9]{{6}}Z[^=]*=?)"
+    # Stop at the line end so we never merge two stacked reports into one.
+    pattern = rf"({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*=?)"
     match = re.search(pattern, raw_text, re.IGNORECASE)
     if match:
         return f"{match.group(1)} {match.group(2)}".strip().rstrip("=")
@@ -95,16 +122,7 @@ def parse_amss_time(metar_str: str) -> datetime | None:
         day = int(ts[0:2])
         hour = int(ts[2:4])
         minute = int(ts[4:6])
-        if not (1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
-            return None
-        now_dt = datetime.now(timezone.utc)
-        obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-        if obs_dt > now_dt:  # rolled over month boundary
-            if now_dt.month == 1:
-                obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
-            else:
-                obs_dt = obs_dt.replace(month=now_dt.month - 1)
-        return obs_dt
+        return resolve_obs_time(day, hour, minute)
     except Exception:
         return None
 
@@ -256,7 +274,7 @@ def fetch_ogimet_taf(icao: str) -> tuple[str | None, datetime | None]:
 
 
 # ---------- Helper: robust GET with retries ----------
-def safe_get(url: str, *, timeout: int = 3, retries: int = 0) -> Any:
+def safe_get(url: str, *, timeout: int = 3, retries: int = 1) -> Any:
     """Fetch JSON with exponential back-off to prevent random timeout errors."""
     backoff = 1
     for attempt in range(retries + 1):
@@ -300,7 +318,7 @@ def get_sun_times(lat, lon):
                 try:
                     dt = datetime.fromisoformat(t_str.replace('Z', '+00:00'))
                     return dt.strftime('%H:%M') + "Z"
-                except:
+                except Exception:
                     return "N/A"
             
             data = {
@@ -338,7 +356,7 @@ def decode_wx(wx_string):
         'MI': 'Shallow ', 'PR': 'Partial ', 'BC': 'Patches ', 'DR': 'Low Drifting ',
         'BL': 'Blowing ', 'SH': 'Showers ', 'TS': 'Thunderstorm ', 'FZ': 'Freezing ',
         'DZ': 'Drizzle', 'RA': 'Rain', 'SN': 'Snow', 'SG': 'Snow Grains',
-        'IC': 'Ice Crystals', 'PE': 'Ice Pellets', 'GR': 'Hail', 'GS': 'Small Hail',
+        'IC': 'Ice Crystals', 'PL': 'Ice Pellets', 'GR': 'Hail', 'GS': 'Small Hail',
         'UP': 'Unknown Precip', 'BR': 'Mist', 'FG': 'Fog', 'FU': 'Smoke',
         'VA': 'Volcanic Ash', 'DU': 'Widespread Dust', 'SA': 'Sand', 'HZ': 'Haze',
         'PO': 'Dust/Sand Whirls', 'SQ': 'Squalls', 'FC': 'Funnel Cloud',
@@ -737,9 +755,10 @@ def get_instant_weather(stations: str) -> str:
                 result_text += f"🌡️ *Temperature:* {temp}°C | *Dewpoint:* {dewp}°C\n"
                 result_text += f"🛩️ *Altimeter:* {altim}\n"
                 result_text += "\n"
-                
-                # Update Cache
-                weather_cache[station] = (result_text, time.time())
+                # NOTE: do not cache per-station here. result_text is the running
+                # accumulation of ALL requested stations, so storing it under a
+                # single-station key would later return another station's data.
+                # The full result is cached under cache_key at the end instead.
             else:
                 # Use pre-fetched NOAA METAR as fallback (already fetched in parallel above)
                 raw_metar = None
@@ -859,12 +878,6 @@ def get_instant_weather(stations: str) -> str:
                         result_text += f", Wx: {wx_str}"
                     result_text += "\n"
                 result_text += "\n"
-            elif station == 'VANM':
-                raw_taf = "VANM 181700Z 1818/1924 29007KT 4000 HZ BR SCT020"
-                issue_time_formatted = "2026-05-18 17:00 UTC"
-                result_text += f"📅 **TAF** (Issued: {issue_time_formatted})\n```\n{raw_taf}\n```\n\n"
-                result_text += "*Decoded:*\n"
-                result_text += "  🔹 **INITIAL**: Wind 290° at 7kt, Vis 4000m, Scattered clouds at 2000ft\n\n"
             else:
                 # Use pre-fetched NOAA TAF as fallback (already fetched in parallel above)
                 raw_taf = None
@@ -1031,7 +1044,7 @@ def parse_raw_metar_to_dict(metar: str) -> dict:
                 inhg = float(alt_a_match.group(1)) / 100.0
                 hpa = int(round(inhg * 33.8639))
                 model["altimeter"] = f"Q{hpa} hPa"
-            except:
+            except Exception:
                 pass
                 
     # 5. Clouds
@@ -1201,7 +1214,7 @@ def _get_station_details_raw(station: str) -> dict:
                     now_dt = datetime.now(timezone.utc)
                     if (now_dt - obs_dt).total_seconds() <= 7200:
                         is_stale = False
-                except:
+                except Exception:
                     pass
 
         # Indian military/civil airfields fallback flow
@@ -1316,39 +1329,39 @@ def _get_station_details_raw(station: str) -> dict:
                                 try:
                                     vis_m = float(vis_val)
                                     vis_str = "10+ Kms" if vis_m >= 9999 else f"{int(vis_m)}m"
-                                except:
+                                except Exception:
                                     vis_str = str(vis_val)
                             else:
                                 vis_str = "N/A"
-                                    
-                                qnh_val = item.get('barometer', {}).get('hpa', 'N/A')
-                                qnh_str = f"Q{qnh_val} hPa" if qnh_val != 'N/A' else "N/A"
-                                
-                                cloud_full = "CAVOK"
-                                if item.get('clouds'):
-                                    cloud_full = " ".join([f"{c.get('code','')} {c.get('base_feet_agl','')}".strip() for c in item['clouds']])
-                                    
-                                cwx_model = parse_raw_metar_to_dict(item.get('raw_text', ''))
-                                wx_str = cwx_model.get("weather", "NONE")
-                                    
-                                return {
-                                    "icao": station,
-                                    "name": station_name,
-                                    "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
-                                    "model": {
-                                        "temp": f"{t_val}°C" if t_val != 'N/A' else "N/A",
-                                        "dew": f"{d_val}°C" if d_val != 'N/A' else "N/A",
-                                        "windDir": wdir,
-                                        "windSpeed": wspd,
-                                        "windStr": f"{wdir}° / {wspd} KT",
-                                        "visibility": vis_str,
-                                        "clouds": cloud_full,
-                                        "weather": wx_str,
-                                        "altimeter": qnh_str
-                                    },
-                                    "history": [item.get('raw_text', '')],
-                                    "raw_taf": raw_taf
-                                }
+
+                            qnh_val = item.get('barometer', {}).get('hpa', 'N/A')
+                            qnh_str = f"Q{qnh_val} hPa" if qnh_val != 'N/A' else "N/A"
+
+                            cloud_full = "CAVOK"
+                            if item.get('clouds'):
+                                cloud_full = " ".join([f"{c.get('code','')} {c.get('base_feet_agl','')}".strip() for c in item['clouds']])
+
+                            cwx_model = parse_raw_metar_to_dict(item.get('raw_text', ''))
+                            wx_str = cwx_model.get("weather", "NONE")
+
+                            return {
+                                "icao": station,
+                                "name": station_name,
+                                "time": obs_dt.strftime('%Y-%m-%d %H:%M UTC'),
+                                "model": {
+                                    "temp": f"{t_val}°C" if t_val != 'N/A' else "N/A",
+                                    "dew": f"{d_val}°C" if d_val != 'N/A' else "N/A",
+                                    "windDir": wdir,
+                                    "windSpeed": wspd,
+                                    "windStr": f"{wdir}° / {wspd} KT",
+                                    "visibility": vis_str,
+                                    "clouds": cloud_full,
+                                    "weather": wx_str,
+                                    "altimeter": qnh_str
+                                },
+                                "history": [item.get('raw_text', '')],
+                                "raw_taf": raw_taf
+                            }
                 except Exception:
                     pass
                     
@@ -1374,7 +1387,7 @@ def _get_station_details_raw(station: str) -> dict:
                             try:
                                 vis_m = float(vis_val)
                                 vis_str = "10+ Kms" if vis_m >= 9999 else f"{int(vis_m)}m"
-                            except:
+                            except Exception:
                                 vis_str = str(vis_val)
                         else:
                             vis_str = "N/A"

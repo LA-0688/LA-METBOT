@@ -10,7 +10,7 @@ from astral.sun import sun
 import concurrent.futures
 from astral import LocationInfo
 from db_manager import upsert_weather, bulk_upsert_weather
-from weather_engine import get_station_details
+from weather_engine import get_station_details, resolve_obs_time
 import decoder
 
 
@@ -18,7 +18,7 @@ import decoder
 # GLOBAL BULK INGESTION ENGINE
 # Downloads ALL ~4,600 airport METARs from NOAA in a single HTTP call,
 # parses them into the decoded_data JSON schema, and bulk-upserts
-# everything into Supabase in one transaction.
+# everything into the local SQLite cache (weather.db) in one transaction.
 # =====================================================================
 
 # Indian airports that need the specialized AAI/AMSS/Ogimet scraper
@@ -104,7 +104,7 @@ def parse_raw_metar_to_bulk_record(raw_metar: str) -> dict:
                 inhg = float(alt_a.group(1)) / 100.0
                 hpa = int(round(inhg * 33.8639))
                 model["altimeter"] = f"Q{hpa} hPa"
-            except:
+            except Exception:
                 pass
 
     # 5. Clouds
@@ -139,17 +139,9 @@ def parse_taf_time(raw_taf: str) -> datetime:
     try:
         ts = match.group(1)
         day, hour, minute = int(ts[0:2]), int(ts[2:4]), int(ts[4:6])
-        now = datetime.now(timezone.utc)
-        from datetime import timedelta
-        obs_dt = now.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-        # If the day seems like it's from late last month (e.g. today is 1st, TAF is 31st)
-        if obs_dt > now + timedelta(days=2):
-            if now.month == 1:
-                obs_dt = obs_dt.replace(year=now.year - 1, month=12)
-            else:
-                obs_dt = obs_dt.replace(month=now.month - 1)
-        return obs_dt
-    except:
+        obs_dt = resolve_obs_time(day, hour, minute)
+        return obs_dt if obs_dt else datetime.min.replace(tzinfo=timezone.utc)
+    except Exception:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 def fetch_global_tafs() -> dict:
@@ -164,7 +156,7 @@ def fetch_global_tafs() -> dict:
         import io, gzip
         import xml.etree.ElementTree as ET
         
-        headers = {"User-Agent": "MetBotLayer2Engine/2.0 (contact@metbot.render)"}
+        headers = {"User-Agent": "MetBotLayer2Engine/2.0 (aviation-metar on huggingface)"}
         resp = requests.get(url, headers=headers, timeout=30)
         if resp.status_code == 200:
             with gzip.open(io.BytesIO(resp.content), 'rt', encoding='utf-8') as f:
@@ -188,16 +180,26 @@ def fetch_global_tafs() -> dict:
     
     return taf_records
 
+# Memoized so a single sync cycle (global phase + Indian phase) downloads the
+# large airports.json only once instead of twice.
+_global_airports_cache = {"data": None, "ts": 0.0}
+
 def fetch_global_airports() -> dict:
-    """Downloads the global list of airports and their coordinates."""
+    """Downloads the global list of airports and their coordinates (cached 1h)."""
+    cached = _global_airports_cache["data"]
+    if cached and (time.time() - _global_airports_cache["ts"]) < 3600:
+        return cached
     url = "https://raw.githubusercontent.com/mwgg/Airports/master/airports.json"
     try:
         resp = requests.get(url, timeout=15)
         if resp.status_code == 200:
-            return resp.json()
+            data = resp.json()
+            _global_airports_cache["data"] = data
+            _global_airports_cache["ts"] = time.time()
+            return data
     except Exception as e:
         print(f"Failed to fetch global airports list: {e}")
-    return {}
+    return cached or {}
 
 def fetch_global_metars() -> list:
     """Downloads the NOAA global METAR CSV cache file.
@@ -216,7 +218,7 @@ def fetch_global_metars() -> list:
     url = "https://aviationweather.gov/data/cache/metars.cache.csv.gz"
     print(f"[GLOBAL SYNC] Downloading global METAR CSV from {url}...", flush=True)
     try:
-        headers = {"User-Agent": "MetBotLayer2Engine/2.0 (contact@metbot.render)"}
+        headers = {"User-Agent": "MetBotLayer2Engine/2.0 (aviation-metar on huggingface)"}
         resp = requests.get(url, headers=headers, timeout=30)
         if resp.status_code == 200:
             with gzip.open(io.BytesIO(resp.content), 'rt', encoding='utf-8') as f:
@@ -243,7 +245,7 @@ def fetch_global_metars() -> list:
                     try:
                         obs_dt = datetime.fromisoformat(obs_time_str.replace('Z', '+00:00'))
                         time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
-                    except:
+                    except Exception:
                         time_str = "N/A"
                         
                     model = parse_raw_metar_to_bulk_record(raw_metar)
@@ -335,7 +337,7 @@ def fetch_global_metars() -> list:
 
 
 def global_bulk_sync():
-    """Phase 1: Downloads and bulk-inserts ALL global METARs into Supabase."""
+    """Phase 1: Downloads and bulk-inserts ALL global METARs into the SQLite cache."""
     records = fetch_global_metars()
     if not records:
         print("[GLOBAL SYNC] No records to insert. Skipping.", flush=True)
@@ -358,7 +360,7 @@ def global_bulk_sync():
 def indian_bulk_sync():
     """Phase 2: Scrapes the AAI portal and AMSS regional nodes ONCE each,
     extracts ALL Indian airport METARs in bulk, parses them, and bulk-inserts
-    into Supabase. This covers 50+ Indian airports in ~10 seconds instead of
+    into the SQLite cache. This covers 50+ Indian airports in ~10 seconds instead of
     scraping them one-by-one.
     """
     import ssl
@@ -367,21 +369,19 @@ def indian_bulk_sync():
     from urllib3.poolmanager import PoolManager
     from bs4 import BeautifulSoup
 
+    def _legacy_ctx():
+        # Relax legacy cipher SECLEVEL but keep certificate verification on.
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+        return ctx
+
     class TLSAdapter(HTTPAdapter):
         def init_poolmanager(self, connections, maxsize, block=False):
-            ctx = ssl.create_default_context()
-            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, ssl_context=ctx)
+            self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, ssl_context=_legacy_ctx())
 
     class CustomAdapter(HTTPAdapter):
         def init_poolmanager(self, *args, **kwargs):
-            ctx = ssl.create_default_context()
-            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            kwargs['ssl_context'] = ctx
+            kwargs['ssl_context'] = _legacy_ctx()
             return super().init_poolmanager(*args, **kwargs)
 
     combined_text = ""
@@ -403,10 +403,10 @@ def indian_bulk_sync():
         try:
             s = requests.Session()
             s.mount('https://', CustomAdapter())
-            r = s.get(url, headers={"User-Agent": "Mozilla/5.0"}, verify=False, timeout=10)
+            r = s.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             if r.status_code == 200:
                 return BeautifulSoup(r.text, 'html.parser').get_text()
-        except:
+        except Exception:
             pass
         return ""
 
@@ -450,15 +450,10 @@ def indian_bulk_sync():
             try:
                 ts = ts_match.group(1)
                 day, hour, minute = int(ts[0:2]), int(ts[2:4]), int(ts[4:6])
-                now_dt = datetime.now(timezone.utc)
-                obs_dt = now_dt.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-                if obs_dt > now_dt:
-                    if now_dt.month == 1:
-                        obs_dt = obs_dt.replace(year=now_dt.year - 1, month=12)
-                    else:
-                        obs_dt = obs_dt.replace(month=now_dt.month - 1)
-                time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
-            except:
+                obs_dt = resolve_obs_time(day, hour, minute)
+                if obs_dt:
+                    time_str = obs_dt.strftime('%Y-%m-%d %H:%M UTC')
+            except Exception:
                 pass
 
         indian_records[icao] = (raw, time_str)
@@ -530,6 +525,10 @@ def indian_bulk_sync():
         station_name = "Unknown Station"
         coords_str = ""
         sun_str = ""
+        # Initialize per-iteration so a station missing from mwgg can't raise
+        # NameError (or worse, reuse the previous loop's coordinates).
+        lat = None
+        lon = None
         airport_info = global_airports.get(icao)
         if airport_info:
             try:

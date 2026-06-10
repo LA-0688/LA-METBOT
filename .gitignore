@@ -5,3 +5,11 @@ __pycache__/
 scratch/
 node_modules/
 .DS_Store
+
+# Local deploy script may contain credentials - never commit
+deploy.bat
+
+# SQLite cache database - generated at runtime, never commit
+*.db
+*.db-wal
+*.db-shm

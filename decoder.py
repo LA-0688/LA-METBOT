@@ -169,6 +169,14 @@ def decode_taf(raw_taf):
     
     for token in tokens:
         if token in ["TEMPO", "BECMG"] or token.startswith("PROB") or token.startswith("FM"):
+            # "PROB30 TEMPO ..." is a single qualified group, not two. If we just
+            # opened a PROBxx group and the next token is TEMPO/BECMG, merge it
+            # into the type instead of starting a new (and empty) change group.
+            if (current_change and not current_change["raw"]
+                    and current_change["type"].startswith("PROB")
+                    and token in ["TEMPO", "BECMG"]):
+                current_change["type"] += " " + token
+                continue
             if current_change:
                 changes.append(current_change)
             current_change = {"type": token, "raw": [], "parsed": {}}
