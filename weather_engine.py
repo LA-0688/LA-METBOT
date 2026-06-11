@@ -36,6 +36,12 @@ class TLSAdapter(requests.adapters.HTTPAdapter):
 
 load_dotenv()
 
+def log_source_failure(source: str, url: str, error) -> None:
+    """Every fetcher reports its failures through here. Dead sources (like the
+    old AAI endpoint that sat on a 404 for months) must surface in the logs
+    within a day, not get discovered during a debugging session."""
+    print(f"[SOURCE FAIL] {source} :: {url} :: {error}", flush=True)
+
 def resolve_obs_time(day, hour, minute):
     """Resolves a DDHHMM observation group to a real UTC datetime.
 
@@ -82,8 +88,9 @@ def fetch_all_imd_regional_nodes() -> str:
             resp = session.get(url, headers=headers, timeout=8)
             if resp.status_code == 200:
                 return BeautifulSoup(resp.text, 'html.parser').get_text() + "\n"
-        except Exception:
-            pass
+            log_source_failure("AMSS/IMD", url, f"HTTP {resp.status_code}")
+        except Exception as exc:
+            log_source_failure("AMSS/IMD", url, exc)
         return ""
         
     global _imd_node_cache
@@ -137,80 +144,6 @@ def parse_amss_time(metar_str: str) -> datetime | None:
     except Exception:
         return None
 
-def fetch_live_aai_weather(icao: str) -> tuple[str | None, datetime | None]:
-    """Tier 1A: Scrapes the live Airports Authority of India (AAI) portal
-    to fetch VOGO/VAPO METAR weather directly from the domestic stream.
-    """
-    if not icao.upper().startswith('V'):
-        return None, None
-        
-    url = "https://aim-india.aai.aero/eaip/metar_taf.php"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-    
-    try:
-        session = requests.Session()
-        session.mount('https://', TLSAdapter())
-        # AAI requires hitting root first to establish session cookies
-        session.get("https://aim-india.aai.aero/", headers=headers, timeout=4)
-        
-        # Now pull the raw domestic metar grid
-        response = session.get(url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-            page_text = soup.get_text()
-            
-            # Find any report starting with ICAO
-            pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
-            matches = re.finditer(pattern, page_text, re.IGNORECASE)
-            for m in matches:
-                raw = m.group(0).strip().rstrip('=')
-                # Exclude TAF lines (which have validity period e.g. 2218/2400)
-                if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
-                    continue
-                obs_dt = parse_amss_time(raw)
-                if obs_dt:
-                    return raw, obs_dt
-    except Exception:
-        pass
-    return None, None
-
-def fetch_aai_taf(icao: str) -> tuple[str | None, datetime | None]:
-    """Tier 1A: Scrapes the live Airports Authority of India (AAI) portal
-    to fetch VOGO/VAPO TAF weather directly from the domestic stream.
-    """
-    if not icao.upper().startswith('V'):
-        return None, None
-        
-    url = "https://aim-india.aai.aero/eaip/metar_taf.php"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-    
-    try:
-        session = requests.Session()
-        session.mount('https://', TLSAdapter())
-        session.get("https://aim-india.aai.aero/", headers=headers, timeout=4)
-        response = session.get(url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-            page_text = soup.get_text()
-            
-            pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
-            matches = re.finditer(pattern, page_text, re.IGNORECASE)
-            for m in matches:
-                raw = m.group(0).strip().rstrip('=')
-                # Only match TAF lines (must contain validity period e.g. 2218/2400)
-                if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
-                    obs_dt = parse_amss_time(raw)
-                    return raw, obs_dt
-    except Exception:
-        pass
-    return None, None
-
 def fetch_ogimet_metar(icao: str) -> tuple[str | None, datetime | None]:
     """Tier 1B: Scrape the latest METAR for an Indian station from Ogimet.
     Returns (raw_metar_string, observation_datetime) or (None, None) on failure.
@@ -228,24 +161,25 @@ def fetch_ogimet_metar(icao: str) -> tuple[str | None, datetime | None]:
         )
         r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         if r.status_code != 200:
+            log_source_failure("Ogimet METAR", url, f"HTTP {r.status_code}")
             return None, None
         text = BeautifulSoup(r.text, 'html.parser').get_text()
-        
+
         # Regex to find any report starting with ICAO
         pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
         matches = re.finditer(pattern, text, re.IGNORECASE)
         for m in matches:
             raw = m.group(0).strip().rstrip('=')
-            
+
             # Exclude TAF lines (which have validity period e.g. 2218/2400)
             if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
                 continue
-                
+
             obs_dt = parse_amss_time(raw)
             if obs_dt:
                 return raw, obs_dt
-    except Exception:
-        pass
+    except Exception as exc:
+        log_source_failure("Ogimet METAR", f"ogimet.com ({icao})", exc)
     return None, None
 
 def fetch_ogimet_taf(icao: str) -> tuple[str | None, datetime | None]:
@@ -265,22 +199,23 @@ def fetch_ogimet_taf(icao: str) -> tuple[str | None, datetime | None]:
         )
         r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         if r.status_code != 200:
+            log_source_failure("Ogimet TAF", url, f"HTTP {r.status_code}")
             return None, None
         text = BeautifulSoup(r.text, 'html.parser').get_text()
-        
+
         # Regex to find any report starting with ICAO
         pattern = rf"\b({icao.upper()})\s+([0-9]{{6}}Z[^=\n]*)"
         matches = re.finditer(pattern, text, re.IGNORECASE)
         for m in matches:
             raw = m.group(0).strip().rstrip('=')
-            
+
             # Only match TAF lines (must contain validity period e.g. 2218/2400)
             if re.search(r'\b[0-9]{4}/[0-9]{4}\b', raw):
                 obs_dt = parse_amss_time(raw)
                 if obs_dt:
                     return raw, obs_dt
-    except Exception:
-        pass
+    except Exception as exc:
+        log_source_failure("Ogimet TAF", f"ogimet.com ({icao})", exc)
     return None, None
 
 
@@ -338,8 +273,8 @@ def get_sun_times(lat, lon):
             }
             sun_cache[cache_key] = (data, time.time())
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        log_source_failure("sunrise-sunset.org", url, exc)
     return {'sunrise': 'N/A', 'sunset': 'N/A'}
 
 def format_visibility(vis_sm, station_code):
@@ -434,11 +369,12 @@ def get_instant_weather(stations: str) -> str:
             urls[f'noaa_taf_{s}'] = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{s}.TXT"
             urls[f'checkwx_metar_{s}'] = f"https://api.checkwx.com/metar/{s}/decoded"
             urls[f'checkwx_taf_{s}'] = f"https://api.checkwx.com/taf/{s}/decoded"
-            urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
-            urls[f'avwx_taf_{s}'] = f"https://avwx.rest/api/taf/{s}"
+            # AVWX has no live Indian coverage (months-stale data confirmed
+            # 2026-06-11 with a valid subscription) — skip it for V* stations.
+            if not s.upper().startswith('V'):
+                urls[f'avwx_metar_{s}'] = f"https://avwx.rest/api/metar/{s}"
+                urls[f'avwx_taf_{s}'] = f"https://avwx.rest/api/taf/{s}"
             if s.upper().startswith('V'):
-                urls[f'aai_metar_{s}'] = f"AAI_TRIGGER_{s}"
-                urls[f'aai_taf_{s}'] = f"AAI_TAF_TRIGGER_{s}"
                 urls[f'ogimet_metar_{s}'] = f"OGIMET_METAR_TRIGGER_{s}"
                 urls[f'ogimet_taf_{s}'] = f"OGIMET_TAF_TRIGGER_{s}"
             
@@ -451,12 +387,6 @@ def get_instant_weather(stations: str) -> str:
             try:
                 if url == 'AMSS_TRIGGER':
                     return name, fetch_all_imd_regional_nodes()
-                elif url.startswith('AAI_TRIGGER_'):
-                    station_code = url.replace('AAI_TRIGGER_', '')
-                    return name, fetch_live_aai_weather(station_code)
-                elif url.startswith('AAI_TAF_TRIGGER_'):
-                    station_code = url.replace('AAI_TAF_TRIGGER_', '')
-                    return name, fetch_aai_taf(station_code)
                 elif url.startswith('OGIMET_METAR_TRIGGER_'):
                     station_code = url.replace('OGIMET_METAR_TRIGGER_', '')
                     return name, fetch_ogimet_metar(station_code)
@@ -470,6 +400,7 @@ def get_instant_weather(stations: str) -> str:
                     resp = requests.get(url, timeout=4)
                     if resp.status_code == 200:
                         return name, resp.text
+                    log_source_failure("NOAA tgftp", url, f"HTTP {resp.status_code}")
                     return name, None
                 elif 'api.checkwx.com' in url:
                     api_key = os.environ.get('CHECKWX_API_KEY')
@@ -477,6 +408,7 @@ def get_instant_weather(stations: str) -> str:
                     resp = requests.get(url, headers={'X-API-Key': api_key}, timeout=5)
                     if resp.status_code == 200:
                         return name, resp.json()
+                    log_source_failure("CheckWX", url, f"HTTP {resp.status_code}")
                     return name, None
                 elif 'avwx.rest' in url:
                     api_key = os.environ.get('AVWX_API_KEY')
@@ -484,14 +416,17 @@ def get_instant_weather(stations: str) -> str:
                     resp = requests.get(url, headers={'Authorization': f'Token {api_key}'}, timeout=5)
                     if resp.status_code == 200:
                         return name, resp.json()
+                    log_source_failure("AVWX", url, f"HTTP {resp.status_code}")
                     return name, None
                 else:
                     # D-ATIS requests
                     resp = requests.get(url, timeout=5)
                     if resp.status_code == 200:
                         return name, resp.json()
+                    log_source_failure("D-ATIS", url, f"HTTP {resp.status_code}")
                     return name, None
-            except Exception:
+            except Exception as exc:
+                log_source_failure(name, url, exc)
                 return name, None
 
         results = {}
@@ -622,21 +557,6 @@ def get_instant_weather(stations: str) -> str:
                             except Exception:
                                 pass
                 
-                # Check AAI live weather (Indian stations only) first if stale - Tier 1A
-                if is_stale and station.upper().startswith('V'):
-                    aai_res = results.get(f'aai_metar_{station}')
-                    if aai_res:
-                        aai_metar, aai_dt = aai_res
-                        if aai_metar and aai_dt:
-                            now_dt = datetime.now(timezone.utc)
-                            aai_elapsed = int((now_dt - aai_dt).total_seconds() / 60)
-                            if elapsed_min == 0 or aai_elapsed < elapsed_min:
-                                raw_metar = aai_metar
-                                elapsed_min = aai_elapsed
-                                obs_time = aai_dt.strftime('%Y-%m-%d %H:%M UTC')
-                                is_stale = aai_elapsed > 120
-                                used_avwx = False
-
                 # Check AMSS regional nodes (Indian stations only) if STILL stale
                 if is_stale and station.upper().startswith('V'):
                     amss_raw = results.get('amss_trigger')
@@ -775,15 +695,6 @@ def get_instant_weather(stations: str) -> str:
                 raw_metar = None
                 obs_dt = None
                 
-                # Check AAI live weather first (Indian stations only) - Tier 1A
-                if station.upper().startswith('V'):
-                    aai_res = results.get(f'aai_metar_{station}')
-                    if aai_res:
-                        aai_metar, aai_dt = aai_res
-                        if aai_metar and aai_dt:
-                            obs_dt = aai_dt
-                            raw_metar = aai_metar
-                            
                 # AMSS Delhi is Tier 1A for Indian stations
                 if not raw_metar and station.upper().startswith('V'):
                     amss_raw = results.get('amss_trigger')
@@ -910,20 +821,6 @@ def get_instant_weather(stations: str) -> str:
                         except Exception:
                             pass
                 
-                # Try AAI TAF (Tier 1A - Domestic Stream)
-                if not raw_taf and station.upper().startswith('V'):
-                    aai_taf_res = results.get(f'aai_taf_{station}')
-                    if aai_taf_res:
-                        a_taf, a_dt = aai_taf_res
-                        if a_taf:
-                            raw_taf = a_taf.strip()
-                            while raw_taf.upper().startswith('TAF'):
-                                raw_taf = raw_taf[3:].strip()
-                            if a_dt:
-                                issue_time_formatted = a_dt.strftime('%Y-%m-%d %H:%M UTC')
-                            else:
-                                issue_time_formatted = "N/A"
-
                 # Try Ogimet TAF fallback (Tier 1B)
                 if not raw_taf and station.upper().startswith('V'):
                     og_taf_res = results.get(f'ogimet_taf_{station}')
@@ -1155,15 +1052,15 @@ def _get_station_details_raw(station: str) -> dict:
         try:
             url = f"https://aviationweather.gov/api/data/metar?ids={station}&format=json&hours=4"
             data = safe_get(url, timeout=5, retries=1)
-        except Exception:
-            pass
-            
+        except Exception as exc:
+            log_source_failure("NOAA aviationweather METAR", url, exc)
+
         info_data = []
         try:
             info_url = f"https://aviationweather.gov/api/data/stationinfo?ids={station}&format=json"
             info_data = safe_get(info_url, timeout=5, retries=1)
-        except Exception:
-            pass
+        except Exception as exc:
+            log_source_failure("NOAA stationinfo", info_url, exc)
         
         station_name = "Unknown Station"
         if info_data and isinstance(info_data, list) and len(info_data) > 0:
@@ -1172,13 +1069,15 @@ def _get_station_details_raw(station: str) -> dict:
         raw_taf = ""
         try:
             taf_url = f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{station}.TXT"
-            taf_text = safe_get(taf_url, timeout=3, retries=1)
+            # Plain-text endpoint: safe_get would try (and fail) to parse JSON.
+            taf_resp = requests.get(taf_url, timeout=4)
+            taf_text = taf_resp.text if taf_resp.status_code == 200 else None
             if taf_text and len(taf_text.split('\n')) >= 2:
                 raw_taf = " ".join(taf_text.strip().split('\n')[1:])
                 while raw_taf.upper().startswith('TAF'):
                     raw_taf = raw_taf[3:].strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_source_failure("NOAA tgftp TAF", taf_url, exc)
             
         if not raw_taf:
             cwx_api_key = os.environ.get('CHECKWX_API_KEY')
@@ -1192,10 +1091,12 @@ def _get_station_details_raw(station: str) -> dict:
                             raw_taf = c_data['data'][0]['raw_text']
                             while raw_taf.upper().startswith('TAF'):
                                 raw_taf = raw_taf[3:].strip()
-                except Exception:
-                    pass
+                    else:
+                        log_source_failure("CheckWX TAF", cwx_taf_url, f"HTTP {cwx_taf_resp.status_code}")
+                except Exception as exc:
+                    log_source_failure("CheckWX TAF", f"api.checkwx.com ({station})", exc)
                     
-        if not raw_taf:
+        if not raw_taf and not station.startswith('V'):
             avwx_api_key = os.environ.get('AVWX_API_KEY')
             if avwx_api_key:
                 try:
@@ -1205,8 +1106,10 @@ def _get_station_details_raw(station: str) -> dict:
                         raw_taf = avwx_taf_resp.json().get('raw', '')
                         while raw_taf.upper().startswith('TAF'):
                             raw_taf = raw_taf[3:].strip()
-                except Exception:
-                    pass
+                    else:
+                        log_source_failure("AVWX TAF", avwx_taf_url, f"HTTP {avwx_taf_resp.status_code}")
+                except Exception as exc:
+                    log_source_failure("AVWX TAF", f"avwx.rest ({station})", exc)
             
         # Determine if AviationWeather data is empty or stale (older than 2 hours)
         is_stale = True
@@ -1230,23 +1133,7 @@ def _get_station_details_raw(station: str) -> dict:
 
         # Indian military/civil airfields fallback flow
         if is_stale and station.startswith('V'):
-            # 1. Try AAI Live Portal (Tier 1A - Domestic Stream)
-            try:
-                aai_metar, aai_dt = fetch_live_aai_weather(station)
-                if aai_metar and aai_dt:
-                    model_data = parse_raw_metar_to_dict(aai_metar)
-                    return {
-                        "icao": station,
-                        "name": station_name,
-                        "time": aai_dt.strftime('%Y-%m-%d %H:%M UTC'),
-                        "model": model_data,
-                        "history": [aai_metar],
-                        "raw_taf": raw_taf
-                    }
-            except Exception:
-                pass
-
-            # 2. Try AMSS Regional Nodes
+            # 1. Try AMSS Regional Nodes
             try:
                 amss_raw = fetch_all_imd_regional_nodes()
                 if amss_raw:
@@ -1263,10 +1150,10 @@ def _get_station_details_raw(station: str) -> dict:
                                 "history": [amss_metar],
                                 "raw_taf": raw_taf
                             }
-            except Exception:
-                pass
+            except Exception as exc:
+                log_source_failure("AMSS/IMD", f"regional nodes ({station})", exc)
 
-            # 3. Try Ogimet METAR Fallback (Handles VOGO)
+            # 2. Try Ogimet METAR Fallback (Handles VOGO)
             try:
                 og_metar, og_dt = fetch_ogimet_metar(station)
                 if og_metar and og_dt:
@@ -1279,28 +1166,10 @@ def _get_station_details_raw(station: str) -> dict:
                         "history": [og_metar],
                         "raw_taf": raw_taf
                     }
-            except Exception:
-                pass
+            except Exception as exc:
+                log_source_failure("Ogimet METAR", f"ogimet.com ({station})", exc)
 
-            # 3.5. Try AAI TAF Fallback (Tier 1A - Domestic Stream TAF)
-            try:
-                aai_taf, aai_dt = fetch_aai_taf(station)
-                if aai_taf and aai_dt:
-                    # Clean validity period (e.g. 2218/2400) to prevent visibility/wind parsing corruption
-                    cleaned_taf = re.sub(r'\b[0-9]{4}/[0-9]{4}\b', '', aai_taf).strip()
-                    model_data = parse_raw_metar_to_dict(cleaned_taf)
-                    return {
-                        "icao": station,
-                        "name": station_name,
-                        "time": aai_dt.strftime('%Y-%m-%d %H:%M UTC'),
-                        "model": model_data,
-                        "history": [aai_taf],
-                        "raw_taf": raw_taf
-                    }
-            except Exception:
-                pass
-
-            # 4. Try Ogimet TAF Fallback (Handles VAPO and stations with only TAFs)
+            # 3. Try Ogimet TAF Fallback (Handles VAPO and stations with only TAFs)
             try:
                 og_taf, og_dt = fetch_ogimet_taf(station)
                 if og_taf and og_dt:
@@ -1315,8 +1184,8 @@ def _get_station_details_raw(station: str) -> dict:
                         "history": [og_taf],
                         "raw_taf": raw_taf
                     }
-            except Exception:
-                pass
+            except Exception as exc:
+                log_source_failure("Ogimet TAF", f"ogimet.com ({station})", exc)
                 
         if not data:
             cwx_api_key = os.environ.get('CHECKWX_API_KEY')
@@ -1373,11 +1242,13 @@ def _get_station_details_raw(station: str) -> dict:
                                 "history": [item.get('raw_text', '')],
                                 "raw_taf": raw_taf
                             }
-                except Exception:
-                    pass
+                    else:
+                        log_source_failure("CheckWX METAR", cwx_url, f"HTTP {cwx_resp.status_code}")
+                except Exception as exc:
+                    log_source_failure("CheckWX METAR", f"api.checkwx.com ({station})", exc)
                     
             avwx_api_key = os.environ.get('AVWX_API_KEY')
-            if avwx_api_key:
+            if avwx_api_key and not station.startswith('V'):
                 try:
                     avwx_url = f"https://avwx.rest/api/metar/{station}"
                     avwx_resp = requests.get(avwx_url, headers={'Authorization': f'Token {avwx_api_key}'}, timeout=5)
@@ -1431,9 +1302,10 @@ def _get_station_details_raw(station: str) -> dict:
                             "history": [a_data.get('raw', '')],
                             "raw_taf": raw_taf
                         }
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
+                    else:
+                        log_source_failure("AVWX METAR", avwx_url, f"HTTP {avwx_resp.status_code}")
+                except Exception as exc:
+                    log_source_failure("AVWX METAR", f"avwx.rest ({station})", exc)
             
             return {
                 "icao": station,

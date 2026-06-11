@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 from weather_engine import (
-    fetch_live_aai_weather,
     fetch_all_imd_regional_nodes,
     parse_amss_metar,
     parse_amss_time,
@@ -41,13 +40,6 @@ try:
         print("[NOAA aviationweather] -> empty")
 except Exception as e:
     print(f"[NOAA aviationweather] ERROR: {e}")
-
-# AAI Tier 1A
-try:
-    raw, dt = fetch_live_aai_weather(ICAO)
-    report("AAI aim-india", raw, dt)
-except Exception as e:
-    print(f"[AAI aim-india] ERROR: {e}")
 
 # AMSS regional nodes
 try:
